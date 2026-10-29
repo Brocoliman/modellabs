@@ -1,2 +1,7 @@
 .venv
 uv.lock
+.DS_Store
+
+*.png
+*.pth
+*.safetensors
