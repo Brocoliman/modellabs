@@ -29,6 +29,8 @@ class ModelConfig:
         # Validate parameters
         assert self.n_heads % self.n_groups == 0, \
             f"Number of groups must divide number of heads"
+        assert self.d_head % 2 == 0, \
+            f"For RoPE, d_head must be divisible by 2"
             
         self.group_size = self.n_heads // self.n_groups
             

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from config import ModelConfig
+from config import ModelConfig, CONFIG_QWEN06B
 
 
 class Qwen3(nn.Module):
@@ -13,10 +13,18 @@ class Qwen3(nn.Module):
         # Layers
         self.embedding = nn.Embedding(self.config.vocab_size, self.config.d_model) # d_model x V
         self.blocks = nn.ModuleList([
-            TransformerBlock(self.config) for _ in self.config.n_layers
+            TransformerBlock(self.config) for _ in range(self.config.n_layers)
         ])
         self.final_rmsnorm = nn.RMSNorm([self.config.d_model])
         self.out_fcn = nn.Linear(self.config.d_model, self.config.vocab_size, bias=False)
+        self.out_fcn.weight = self.embedding.weight  # for Qwen they share
+        
+        # RoPE
+        freq = self.config.rope_base ** (torch.arange(0, self.config.d_head, 2) / self.config.d_head)  # 0, 2, 4, ..., d_head
+        angles = torch.outer(torch.arange(0, self.config.tokens), 1.0/freq)  # (T, d_head/2)
+        angles = torch.cat([angles, angles], dim=1)  # (T, d_head)
+        self.register_buffer("rope_cos", torch.cos(angles), persistent=False)
+        self.register_buffer("rope_sin", torch.sin(angles), persistent=False)
     
     def forward(self, in_oh: torch.Tensor): # (B, T, V) -> (B, T, V)
         # Embed
@@ -24,11 +32,11 @@ class Qwen3(nn.Module):
         
         # Generate mask
         T = x.shape[1]
-        mask = torch.tril(torch.ones([T, T]), diagonal=0, dtype=bool) # lower including diagonal; the ones to KEEP
+        mask = torch.ones([T, T], dtype=torch.bool, device=x.device).tril() # lower including diagonal; the ones to KEEP
         
         # Propagate through blocks
         for block in self.blocks:
-            x = block(x, mask)
+            x = block(x, mask, self.rope_cos, self.rope_sin)
         x = self.final_rmsnorm(x) 
         logits = self.out_fcn(x) # (B, T, V)
         return logits
@@ -47,27 +55,34 @@ class TransformerBlock(nn.Module):
         self.fcn2 = nn.Linear(self.config.d_model, self.config.d_linear, bias=False)
         self.fcn3 = nn.Linear(self.config.d_linear, self.config.d_model, bias=False)
     
-    def forward(self, x, mask):  # (B, T, d_model)
-        x = self.gqa(self.rms1(x), mask) + x
+    def forward(self, x, mask, rope_sin, rope_cos):  # (B, T, d_model)
+        x = self.gqa(self.rms1(x), mask, rope_sin, rope_cos) + x
         x_rms2 = self.rms2(x)
         x = self.fcn3(F.silu(self.fcn1(x_rms2)) * self.fcn2(x_rms2)) + x
         return x
     
-
+    
 class GQA(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
         
-        # Matrices and layers and norms
-        self.Wq = nn.Linear(self.config.d_model, self.config.d_model, bias=False)
+        # Matrices and mixing layers and norms
+        self.Wq = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_heads, bias=False)
         self.Wk = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_groups, bias=False)
         self.Wv = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_groups, bias=False)
         self.out_proj = nn.Linear(self.config.d_head * self.config.n_heads, self.config.d_model, bias=False)
         self.qnorm = nn.RMSNorm(self.config.d_head)
         self.knorm = nn.RMSNorm(self.config.d_head)
     
-    def forward(self, x, mask):  # (B, T, d_model) -> (B, T, d_model)
+    def _rotate(self, x, rope_sin, rope_cos, offset=0):  # (B, n_heads, T, d_head)
+        T = x.shape[2]
+        x1, x2 = x[..., :self.config.d_head//2], x[..., self.config.d_head//2:]
+        x90 = torch.cat([-x2, x1], dim=-1)
+        out = x * rope_cos[offset : offset + T] + x90 * rope_sin[offset : offset + T]
+        return out
+        
+    def forward(self, x, mask, rope_sin, rope_cos):  # (B, T, d_model) -> (B, T, d_model)
         B, T, _ = x.shape
         
         Q = self.Wq(x)  # (B, T, d_head * n_heads)
@@ -85,6 +100,8 @@ class GQA(nn.Module):
         K = self.knorm(K)
         
         # RoPE
+        Q = self._rotate(Q, rope_sin, rope_cos)
+        K = self._rotate(K, rope_sin, rope_cos)
         
         # Cache
         
@@ -105,8 +122,23 @@ class GQA(nn.Module):
         A = F.scaled_dot_product_attention(Q, K_full, V_full, mask)  # (B, n_heads, T, d_head)
         
         # Mix the heads
-        A = A.permute(0, 2, 3, 1)   # (B, T, d_head, n_heads)
-        A = A.reshape(B, T, -1)     # (B, T, d_head * n_heads) not view because permute removed contiguity
+        A = A.permute(0, 2, 1, 3)   # (B, T, n_heads, d_head)
+        A = A.reshape(B, T, -1)     # (B, T, n_heads * d_head) not view because permute removed contiguity
         A = self.out_proj(A)        # (B, T, d_model)
         
         return A
+
+
+if __name__ == "__main__":
+    device = torch.device("mps")
+    config = ModelConfig(**CONFIG_QWEN06B)
+    model = Qwen3(config)
+    model = model.to(device)
+    dummy_input = torch.randint(0, config.vocab_size, (1, 16), device=device)
+    
+    model.eval()
+
+    with torch.no_grad():
+        output = model(dummy_input)
+
+    print(output.shape)

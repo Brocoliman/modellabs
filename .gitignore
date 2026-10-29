@@ -5,3 +5,6 @@ uv.lock
 *.png
 *.pth
 *.safetensors
+
+**/__pycache__/
+*.pyc
