@@ -94,15 +94,14 @@ class GQA(nn.Module):
         K_full = K.repeat_interleave(self.config.group_size, dim=1)
         V_full = V.repeat_interleave(self.config.group_size, dim=1)
         
+        # # Calc (Replaced by flashattention below)
         # # K -> (B, n_heads, d_head, T)
         # K_T = K_full.permute(0, 1, 3, 2)
-        
-        # # Calc (Replaced by flashattention)
         # A = (Q @ K_T) / (self.config.d_head ** 0.5)  # (B, n_heads, T, T)
         # A = A.masked_fill(mask, float('-inf')) # set all noncausal attention pairs to none
         # A = torch.softmax(A, dim=3) @ V_full  # (B, n_heads, T, d_head)
         
-        # FlashAttention
+        # calc
         A = F.scaled_dot_product_attention(Q, K_full, V_full, mask)  # (B, n_heads, T, d_head)
         
         # Mix the heads
