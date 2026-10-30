@@ -9,19 +9,25 @@ class Qwen3(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
+        self.vocab_size = self.config.vocab_size
+        self.d_model = self.config.d_model
+        self.d_head = self.config.d_head
+        self.n_layers = self.config.n_layers
+        self.rope_base = self.config.rope_base
+        self.tokens = self.config.tokens
         
         # Layers
-        self.embedding = nn.Embedding(self.config.vocab_size, self.config.d_model) # d_model x V
+        self.embedding = nn.Embedding(self.vocab_size, self.d_model) # d_model x V
         self.blocks = nn.ModuleList([
-            TransformerBlock(self.config) for _ in range(self.config.n_layers)
+            TransformerBlock(self.config) for _ in range(self.n_layers)
         ])
-        self.norm = nn.RMSNorm([self.config.d_model], eps=1e-6)
-        self.unembedding = nn.Linear(self.config.d_model, self.config.vocab_size, bias=False)
+        self.norm = nn.RMSNorm([self.d_model], eps=1e-6)
+        self.unembedding = nn.Linear(self.d_model, self.vocab_size, bias=False)
         self.unembedding.weight = self.embedding.weight  # for Qwen they share
         
         # RoPE
-        freq = self.config.rope_base ** (torch.arange(0, self.config.d_head, 2) / self.config.d_head)  # 0, 2, 4, ..., d_head
-        angles = torch.outer(torch.arange(0, self.config.tokens), 1.0/freq)  # (T, d_head/2)
+        freq = self.rope_base ** (torch.arange(0, self.d_head, 2) / self.d_head)  # 0, 2, 4, ..., d_head
+        angles = torch.outer(torch.arange(0, self.tokens), 1.0/freq)  # (T, d_head/2)
         angles = torch.cat([angles, angles], dim=1)  # (T, d_head)
         self.register_buffer("rope_cos", torch.cos(angles), persistent=False)
         self.register_buffer("rope_sin", torch.sin(angles), persistent=False)
@@ -66,18 +72,22 @@ class GQA(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.d_model = self.config.d_model
+        self.d_head = self.config.d_head
+        self.n_heads = self.config.n_heads
+        self.n_groups = self.config.n_groups
         
         # Matrices and mixing layers and norms
-        self.Wq = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_heads, bias=False)
-        self.Wk = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_groups, bias=False)
-        self.Wv = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_groups, bias=False)
-        self.Wo = nn.Linear(self.config.d_head * self.config.n_heads, self.config.d_model, bias=False)
-        self.qnorm = nn.RMSNorm(self.config.d_head, eps=1e-6)
-        self.knorm = nn.RMSNorm(self.config.d_head, eps=1e-6)
+        self.Wq = nn.Linear(self.d_model, self.d_head * self.n_heads, bias=False)
+        self.Wk = nn.Linear(self.d_model, self.d_head * self.n_groups, bias=False)
+        self.Wv = nn.Linear(self.d_model, self.d_head * self.n_groups, bias=False)
+        self.Wo = nn.Linear(self.d_head * self.n_heads, self.d_model, bias=False)
+        self.qnorm = nn.RMSNorm(self.d_head, eps=1e-6)
+        self.knorm = nn.RMSNorm(self.d_head, eps=1e-6)
     
     def _rotate(self, x, *, rope_sin, rope_cos, offset=0):  # (B, n_heads, T, d_head)
         T = x.shape[2]
-        x1, x2 = x[..., :self.config.d_head//2], x[..., self.config.d_head//2:]
+        x1, x2 = x[..., :self.d_head//2], x[..., self.d_head//2:]
         x90 = torch.cat([-x2, x1], dim=-1)
         out = x * rope_cos[offset : offset + T] + x90 * rope_sin[offset : offset + T]
         return out
@@ -91,9 +101,9 @@ class GQA(nn.Module):
         
         # Q   -> (B, T, n_heads, d_head)  -> (B, n_heads, T, d_head)
         # K,V -> (B, T, n_groups, d_head) -> (B, n_groups, T, d_head)
-        Q = Q.view(B, T, self.config.n_heads, self.config.d_head).permute(0, 2, 1, 3)
-        K = K.view(B, T, self.config.n_groups, self.config.d_head).permute(0, 2, 1, 3)
-        V = V.view(B, T, self.config.n_groups, self.config.d_head).permute(0, 2, 1, 3)
+        Q = Q.view(B, T, self.n_heads, self.d_head).permute(0, 2, 1, 3)
+        K = K.view(B, T, self.n_groups, self.d_head).permute(0, 2, 1, 3)
+        V = V.view(B, T, self.n_groups, self.d_head).permute(0, 2, 1, 3)
         
         # QK Norm
         Q = self.qnorm(Q)
