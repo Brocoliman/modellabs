@@ -1,6 +1,8 @@
 from pathlib import Path
 HERE = Path(__file__).resolve().parent
-from reasoning_from_scratch.qwen3 import download_qwen3_small, Qwen3Tokenizer, Qwen3Model, QWEN_CONFIG_06_B
+from .config import ModelConfig, CONFIG_QWEN06B
+from .model import Qwen3
+from .tokenizer import Qwen3Tokenizer
 import torch
 import torch.nn as nn
 
@@ -19,10 +21,8 @@ set before training, it's a rule playbook
 device = torch.device("mps")
 
 # Load tokenizer & weights
-download_qwen3_small(kind="base", tokenizer_only=True, out_dir=HERE / "qwen3") # small is 0.6B
 tokenizer = Qwen3Tokenizer(tokenizer_file_path=HERE / Path("qwen3") / "tokenizer-base.json")
-download_qwen3_small(kind="base", tokenizer_only=False, out_dir=HERE / 'qwen3')
-model = Qwen3Model(QWEN_CONFIG_06_B)
+model = Qwen3(ModelConfig(CONFIG_QWEN06B))
 model.load_state_dict(torch.load(HERE / Path("Qwen3") / "qwen3-0.6B-base.pth"))
 model.to(device)
 
@@ -50,6 +50,6 @@ output = tokenizer.decode(output.squeeze(0).tolist())
 print(output)
 
 r"""
-uv run reasoninglab/main.py 'In quadrilateral $ABCD$, $\angle B$ is a right angle, diagonal $\overline{AC}$ is perpendicular to $\overline{CD}$, $AB=18$, $BC=21$, and $CD=14$. Find the perimeter of $ABCD$. The answer is '
+uv run python -m reasoninglab.main 'In quadrilateral $ABCD$, $\angle B$ is a right angle, diagonal $\overline{AC}$ is perpendicular to $\overline{CD}$, $AB=18$, $BC=21$, and $CD=14$. Find the perimeter of $ABCD$. The answer is '
 uv run reasoninglab/main.py 'We assume that $F$ is a field. Let $V$ be a vector space of finite-dimension over $F$ and let $S$ be a subset of $V$. We define the annihilator of $S$ by \[S^\circ = \{f\in V^*\ \vert \ S\subset \ker f\}~.\] Prove that $S^\circ$ is a subspace of $V^*$.'
 """

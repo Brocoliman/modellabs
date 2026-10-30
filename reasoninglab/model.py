@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from config import ModelConfig, CONFIG_QWEN06B
+from .config import ModelConfig, CONFIG_QWEN06B
 
 
 class Qwen3(nn.Module):
@@ -133,6 +133,7 @@ if __name__ == "__main__":
     device = torch.device("mps")
     config = ModelConfig(**CONFIG_QWEN06B)
     model = Qwen3(config)
+    
     model = model.to(device)
     dummy_input = torch.randint(0, config.vocab_size, (1, 16), device=device)
     

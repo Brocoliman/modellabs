@@ -14,17 +14,17 @@ CONFIG_QWEN06B = { # 0.6B model
 }
 
 class ModelConfig:
-    def __init__(self, **kwargs):
-        self.vocab_size = kwargs["vocab_size"]
-        self.tokens = kwargs["tokens"]
-        self.d_model = kwargs["d_model"]
-        self.n_heads = kwargs["n_heads"]
-        self.n_layers = kwargs["n_layers"]
-        self.n_groups = kwargs["n_groups"]
-        self.d_linear = kwargs["d_linear"]
-        self.d_head = kwargs["d_head"]
-        self.rope_base = kwargs["rope_base"]
-        self.dtype = kwargs["dtype"]
+    def __init__(self, config):
+        self.vocab_size = config["vocab_size"]
+        self.tokens = config["tokens"]
+        self.d_model = config["d_model"]
+        self.n_heads = config["n_heads"]
+        self.n_layers = config["n_layers"]
+        self.n_groups = config["n_groups"]
+        self.d_linear = config["d_linear"]
+        self.d_head = config["d_head"]
+        self.rope_base = config["rope_base"]
+        self.dtype = config["dtype"]
         
         # Validate parameters
         assert self.n_heads % self.n_groups == 0, \
