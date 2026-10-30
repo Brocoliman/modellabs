@@ -13,4 +13,5 @@ dependencies = [
     "safetensors>=0.8.0",
     "torch>=2.14.1",
     "torchinfo>=1.8.0",
+    "transformers>=5.22.1",
 ]
