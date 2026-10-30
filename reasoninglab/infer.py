@@ -24,21 +24,29 @@ model.load_state_dict(hf_to_local_format(config), strict=True)
 model.to(device)
 
 def chat(prompt: str):
-    input_ids = tokenizer.encode(prompt)  # list[str]
-    input_tensor = torch.tensor(input_ids).unsqueeze(0).to(device)
-    output = generate(model, input_tensor, max_new_tokens=5000, eos_token_id=151643)
+    input_ids = tokenizer.encode(prompt)
+    input_tensor = torch.tensor(input_ids).unsqueeze(0).to(device)  # [1, T]
+    output = generate(model, input_tensor, max_new_tokens=50, eos_token_id=151643, temperature=1e-5)
     output = tokenizer.decode(output.squeeze(0).tolist())
     return output
 
 @torch.inference_mode()
-def generate(model: nn.Module, token_ids: torch.Tensor, *, max_new_tokens: int = 500, 
-             eos_token_id: torch.Tensor=None, temperature=1e-5):
+def generate(model: nn.Module, token_ids: torch.Tensor, *, max_new_tokens: int = 5000, 
+             eos_token_id: torch.Tensor=None, temperature=1e-5, cached=True):
     model.eval()
-    for _ in range(max_new_tokens):
-        out = model(token_ids)[:, -1] # [N*, d] -> last token [d]
+    
+    for token_num in range(max_new_tokens):
+        if token_num == 0 or not cached:
+            # Prefill
+            out, cache = model(token_ids)
+        else:
+            assert cached[0][0].shape[2] == T_cached
+            out, cache = model(token_ids[:,-1:], cache=cache, T_cached=T_cached)  # [B, 1, d_model]
+        out = out[:, -1]  # last token [B, d_model]
         probs = torch.softmax(out / temperature, 1) # [d]
         sampled_token_id = torch.multinomial(probs, 1) # [1]
         if torch.all(sampled_token_id == eos_token_id): break
+        T_cached = token_ids.shape[1]
         token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
     return token_ids
 
