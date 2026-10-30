@@ -1,4 +1,12 @@
+from pathlib import Path
+HERE = Path(__file__).resolve().parent
+
 import torch
+
+PATH_QWEN06B = {
+    'root': HERE / "qwen3" / "hf-0.6B-base",
+    'tokenizer': HERE / "qwen3" / "hf-0.6B-base" / 'tokenizer.json'
+}
 
 CONFIG_QWEN06B = { # 0.6B model
     "vocab_size": 151936,

@@ -1,13 +1,13 @@
-from pathlib import Path
-HERE = Path(__file__).resolve().parent
-from .config import ModelConfig, CONFIG_QWEN06B
-from .model import Qwen3
-from .tokenizer import Qwen3Tokenizer
 import torch
 import torch.nn as nn
 
 import time
 import matplotlib.pyplot as plt
+
+from .config import ModelConfig, CONFIG_QWEN06B, PATH_QWEN06B
+from .model import Qwen3
+from .tokenizer import Qwen3Tokenizer
+from .weights import hf_to_local_format
 
 
 """
@@ -21,10 +21,11 @@ set before training, it's a rule playbook
 device = torch.device("mps")
 
 # Load tokenizer & weights
-tokenizer = Qwen3Tokenizer(tokenizer_file_path=HERE / Path("qwen3") / "tokenizer-base.json")
+tokenizer = Qwen3Tokenizer(tokenizer_file_path=PATH_QWEN06B['tokenizer'])
 config = ModelConfig(CONFIG_QWEN06B)
+
 model = Qwen3(config)
-model.load_state_dict(torch.load(HERE / Path("Qwen3") / "qwen3-0.6B-base.pth"))
+model.load_state_dict(hf_to_local_format(config), strict=True)
 model.to(device)
 
 import sys
@@ -46,7 +47,7 @@ def generate(model: nn.Module, token_ids: torch.Tensor, *, max_new_tokens: int =
 
     return token_ids
 
-output = generate(model, input_tensor, max_new_tokens=5000, eos_token_id=151643, temperature=1)
+output = generate(model, input_tensor, max_new_tokens=5000, eos_token_id=151643)
 output = tokenizer.decode(output.squeeze(0).tolist())
 print(output)
 
