@@ -15,7 +15,7 @@ class Qwen3(nn.Module):
         self.blocks = nn.ModuleList([
             TransformerBlock(self.config) for _ in range(self.config.n_layers)
         ])
-        self.final_rmsnorm = nn.RMSNorm([self.config.d_model])
+        self.final_rmsnorm = nn.RMSNorm([self.config.d_model], eps=1e-6)
         self.out_fcn = nn.Linear(self.config.d_model, self.config.vocab_size, bias=False)
         self.out_fcn.weight = self.embedding.weight  # for Qwen they share
         
@@ -48,9 +48,9 @@ class TransformerBlock(nn.Module):
         self.config = config
         
         # Layers
-        self.rms1 = nn.RMSNorm([self.config.d_model])
+        self.rms1 = nn.RMSNorm([self.config.d_model], eps=1e-6)
         self.gqa = GQA(config)
-        self.rms2 = nn.RMSNorm([self.config.d_model])
+        self.rms2 = nn.RMSNorm([self.config.d_model], eps=1e-6)
         self.fcn1 = nn.Linear(self.config.d_model, self.config.d_linear, bias=False)
         self.fcn2 = nn.Linear(self.config.d_model, self.config.d_linear, bias=False)
         self.fcn3 = nn.Linear(self.config.d_linear, self.config.d_model, bias=False)
@@ -72,8 +72,8 @@ class GQA(nn.Module):
         self.Wk = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_groups, bias=False)
         self.Wv = nn.Linear(self.config.d_model, self.config.d_head * self.config.n_groups, bias=False)
         self.out_proj = nn.Linear(self.config.d_head * self.config.n_heads, self.config.d_model, bias=False)
-        self.qnorm = nn.RMSNorm(self.config.d_head)
-        self.knorm = nn.RMSNorm(self.config.d_head)
+        self.qnorm = nn.RMSNorm(self.config.d_head, eps=1e-6)
+        self.knorm = nn.RMSNorm(self.config.d_head, eps=1e-6)
     
     def _rotate(self, x, rope_sin, rope_cos, offset=0):  # (B, n_heads, T, d_head)
         T = x.shape[2]
@@ -127,19 +127,3 @@ class GQA(nn.Module):
         A = self.out_proj(A)        # (B, T, d_model)
         
         return A
-
-
-if __name__ == "__main__":
-    device = torch.device("mps")
-    config = ModelConfig(**CONFIG_QWEN06B)
-    model = Qwen3(config)
-    
-    model = model.to(device)
-    dummy_input = torch.randint(0, config.vocab_size, (1, 16), device=device)
-    
-    model.eval()
-
-    with torch.no_grad():
-        output = model(dummy_input)
-
-    print(output.shape)

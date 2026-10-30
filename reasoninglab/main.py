@@ -22,12 +22,13 @@ device = torch.device("mps")
 
 # Load tokenizer & weights
 tokenizer = Qwen3Tokenizer(tokenizer_file_path=HERE / Path("qwen3") / "tokenizer-base.json")
-model = Qwen3(ModelConfig(CONFIG_QWEN06B))
+config = ModelConfig(CONFIG_QWEN06B)
+model = Qwen3(config)
 model.load_state_dict(torch.load(HERE / Path("Qwen3") / "qwen3-0.6B-base.pth"))
 model.to(device)
 
 import sys
-prompt = ' '.join(sys.argv[1:] if len(sys.argv)>1 else "Explain large language models: ")
+prompt = ' '.join(sys.argv[1:]) if len(sys.argv)>1 else "Explain large language models: "
 input_ids = tokenizer.encode(prompt)
 input_tensor = torch.tensor(input_ids).unsqueeze(0).to(device)
 
