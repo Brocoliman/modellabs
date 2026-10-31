@@ -3,15 +3,13 @@ from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 
-from .config import ModelConfig, PATH_QWEN06B
+from .config import *
 
-local_dir = PATH_QWEN06B['root']
 
-hf = {}
-for f in Path(local_dir).glob("*.safetensors"):   # 0.6B is one file; 4B is split across several
-    hf.update(load_file(f))
-
-def hf_to_local_format(config: ModelConfig) -> dict:
+def hf_to_local_format(config: ModelConfig, root: Path) -> dict:
+    hf = {}
+    for f in Path(root).glob("*.safetensors"):   # 0.6B is one file; 4B is split across several
+        hf.update(load_file(f))
     out = dict()
     out['embedding.weight'] = hf['model.embed_tokens.weight']
     out['unembedding.weight'] = hf['model.embed_tokens.weight']
@@ -29,6 +27,7 @@ def hf_to_local_format(config: ModelConfig) -> dict:
 
 if __name__ == "__main__":
     load_dotenv()
-    path = snapshot_download("Qwen/Qwen3-0.6B-Base",
+    local_dir = PATH_QWEN06_BASE['root']
+    path = snapshot_download(PATH_QWEN06_BASE['HF_NAME'],
                             allow_patterns=["*.safetensors", "*.json"],
                             local_dir=local_dir)

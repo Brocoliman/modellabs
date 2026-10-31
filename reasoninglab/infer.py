@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from .config import ModelConfig, CONFIG_QWEN06B, PATH_QWEN06B
+from .config import *
 from .model import Qwen3
 from .tokenizer import Qwen3Tokenizer
 from .weights import hf_to_local_format
@@ -17,10 +17,10 @@ set before training, it's a rule playbook
 device = torch.device("mps")
 
 # Load tokenizer & weights
-tokenizer = Qwen3Tokenizer(tokenizer_file_path=PATH_QWEN06B['tokenizer'])
+tokenizer = Qwen3Tokenizer(tokenizer_file_path=PATH_QWEN06_BASE['tokenizer'])
 config = ModelConfig(CONFIG_QWEN06B)
 model = Qwen3(config)
-model.load_state_dict(hf_to_local_format(config), strict=True)
+model.load_state_dict(hf_to_local_format(config, PATH_QWEN06_BASE['root']), strict=True)
 model.to(device)
 
 def generate_text2text(prompt: str, **kwargs):
@@ -53,7 +53,7 @@ def generate(model: nn.Module, token_ids: torch.Tensor, *, max_new_tokens: int =
 if __name__ == "__main__":
     import sys
     prompt = ' '.join(sys.argv[1:]) if len(sys.argv)>1 else "Explain large language models: "
-    print(generate_text2text(prompt, max_new_tokens=1000, temperature=0.6))
+    print(generate_text2text(prompt, max_new_tokens=1000, eos_token_id=151645, temperature=0.6))
 
 r"""
 uv run python -m reasoninglab.infer 'In quadrilateral $ABCD$, $\angle B$ is a right angle, diagonal $\overline{AC}$ is perpendicular to $\overline{CD}$, $AB=18$, $BC=21$, and $CD=14$. Find the perimeter of $ABCD$. The answer is '

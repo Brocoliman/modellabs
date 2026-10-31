@@ -3,9 +3,16 @@ HERE = Path(__file__).resolve().parent
 
 import torch
 
-PATH_QWEN06B = {
+PATH_QWEN06_BASE = {
+    "HF_NAME": "Qwen/Qwen3-0.6B-Base",
     'root': HERE / "qwen3" / "hf-0.6B-base",
     'tokenizer': HERE / "qwen3" / "hf-0.6B-base" / 'tokenizer.json'
+}
+
+PATH_QWEN06 = {
+    "HF_NAME": "Qwen/Qwen3-0.6B",
+    'root': HERE / "qwen3" / "hf-0.6B",
+    'tokenizer': HERE / "qwen3" / "hf-0.6B" / 'tokenizer.json'
 }
 
 CONFIG_QWEN06B = { # 0.6B model

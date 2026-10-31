@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .config import ModelConfig, CONFIG_QWEN06B
+from .config import ModelConfig
 
 
 class Qwen3(nn.Module):
