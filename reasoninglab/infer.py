@@ -40,7 +40,7 @@ def generate(model: nn.Module, token_ids: torch.Tensor, *, max_new_tokens: int =
             # Prefill
             out, cache = model(token_ids)
         else:
-            assert cached[0][0].shape[2] == T_cached
+            assert cache[0][0].shape[2] == T_cached
             out, cache = model(token_ids[:,-1:], cache=cache, T_cached=T_cached)  # [B, 1, d_model]
         out = out[:, -1]  # last token [B, d_model]
         probs = torch.softmax(out / temperature, 1) # [d]
