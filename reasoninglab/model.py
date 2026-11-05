@@ -6,20 +6,20 @@ from .config import ModelSpec
 
 
 class Qwen3(nn.Module):
-    def __init__(self, config: ModelSpec):
+    def __init__(self, spec: ModelSpec):
         super().__init__()
-        self.config = config
-        self.vocab_size = self.config.vocab_size
-        self.d_model = self.config.d_model
-        self.d_head = self.config.d_head
-        self.n_layers = self.config.n_layers
-        self.rope_base = self.config.rope_base
-        self.tokens = self.config.tokens
+        self.spec = spec
+        self.vocab_size = self.spec.vocab_size
+        self.d_model = self.spec.d_model
+        self.d_head = self.spec.d_head
+        self.n_layers = self.spec.n_layers
+        self.rope_base = self.spec.rope_base
+        self.tokens = self.spec.tokens
         
         # Layers
         self.embedding = nn.Embedding(self.vocab_size, self.d_model) # d_model x V
         self.blocks = nn.ModuleList([
-            TransformerBlock(self.config) for _ in range(self.n_layers)
+            TransformerBlock(self.spec) for _ in range(self.n_layers)
         ])
         self.norm = nn.RMSNorm([self.d_model], eps=1e-6)
         self.unembedding = nn.Linear(self.d_model, self.vocab_size, bias=False)
@@ -58,7 +58,7 @@ class Qwen3(nn.Module):
         """
         
         # Need updated cache
-        cache = cache if cache else [None] * self.config.n_layers  # (n_layers, K/V, B, n_groups, T_cache, d_head)
+        cache = cache if cache else [None] * self.spec.n_layers  # (n_layers, K/V, B, n_groups, T_cache, d_head)
         
         # Propagate through blocks
         for i, block in enumerate(self.blocks):
@@ -70,17 +70,17 @@ class Qwen3(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, config):
+    def __init__(self, spec):
         super().__init__()
-        self.config = config
+        self.spec = spec
         
         # Layers
-        self.norm1 = nn.RMSNorm([self.config.d_model], eps=1e-6)
-        self.gqa = GQA(config)
-        self.norm2 = nn.RMSNorm([self.config.d_model], eps=1e-6)
-        self.fcn1 = nn.Linear(self.config.d_model, self.config.d_linear, bias=False)
-        self.fcn2 = nn.Linear(self.config.d_model, self.config.d_linear, bias=False)
-        self.fcn3 = nn.Linear(self.config.d_linear, self.config.d_model, bias=False)
+        self.norm1 = nn.RMSNorm([self.spec.d_model], eps=1e-6)
+        self.gqa = GQA(spec)
+        self.norm2 = nn.RMSNorm([self.spec.d_model], eps=1e-6)
+        self.fcn1 = nn.Linear(self.spec.d_model, self.spec.d_linear, bias=False)
+        self.fcn2 = nn.Linear(self.spec.d_model, self.spec.d_linear, bias=False)
+        self.fcn3 = nn.Linear(self.spec.d_linear, self.spec.d_model, bias=False)
     
     def forward(self, x, *, mask, rope_cos, rope_sin, 
                 cache: tuple[torch.Tensor, torch.Tensor] = None, T_cached: int = 0):  # (B, T, d_model)
@@ -95,14 +95,14 @@ class TransformerBlock(nn.Module):
     
     
 class GQA(nn.Module):
-    def __init__(self, config):
+    def __init__(self, spec):
         super().__init__()
-        self.config = config
-        self.d_model = self.config.d_model
-        self.d_head = self.config.d_head
-        self.n_heads = self.config.n_heads
-        self.n_groups = self.config.n_groups
-        self.group_size = self.config.group_size
+        self.spec = spec
+        self.d_model = self.spec.d_model
+        self.d_head = self.spec.d_head
+        self.n_heads = self.spec.n_heads
+        self.n_groups = self.spec.n_groups
+        self.group_size = self.spec.group_size
         
         # Matrices and mixing layers and norms
         self.Wq = nn.Linear(self.d_model, self.d_head * self.n_heads, bias=False)

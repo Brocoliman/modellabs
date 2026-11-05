@@ -6,7 +6,7 @@ from safetensors.torch import load_file
 from .config import *
 
 
-def hf_to_local_format(config: ModelSpec, root: Path) -> dict:
+def hf_to_local_format(spec: ModelSpec, root: Path) -> dict:
     hf = {}
     for f in Path(root).glob("*.safetensors"):   # 0.6B is one file; 4B is split across several
         hf.update(load_file(f))
@@ -14,7 +14,7 @@ def hf_to_local_format(config: ModelSpec, root: Path) -> dict:
     out['embedding.weight'] = hf['model.embed_tokens.weight']
     out['unembedding.weight'] = hf['model.embed_tokens.weight']
     out['norm.weight'] = hf['model.norm.weight']
-    for i in range(config.n_layers):
+    for i in range(spec.n_layers):
         for matrix in ('q','k','v','o'):
             out[f'blocks.{i}.gqa.W{matrix}.weight'] = hf[f'model.layers.{i}.self_attn.{matrix}_proj.weight']
         for norm in ('q','k'):
