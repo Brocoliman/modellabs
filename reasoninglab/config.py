@@ -3,19 +3,27 @@ HERE = Path(__file__).resolve().parent
 
 import torch
 
-PATH_QWEN06_BASE = {
-    "HF_NAME": "Qwen/Qwen3-0.6B-Base",
-    'root': HERE / "qwen3" / "hf-0.6B-base",
-    'tokenizer': HERE / "qwen3" / "hf-0.6B-base" / 'tokenizer.json'
+CONFIG_QWEN06_BASE = {
+    "hf_name": "Qwen/Qwen3-0.6B-Base",
+    'root_dir': HERE / "qwen3" / "hf-0.6B-base",
+    'tokenizer_dir': HERE / "qwen3" / "hf-0.6B-base" / 'tokenizer.json',
+    'eos_token_id': 151643,
+    'max_new_tokens': 5000, 
+    'temperature': 0.6,
+    'cached': True
 }
 
-PATH_QWEN06 = {
-    "HF_NAME": "Qwen/Qwen3-0.6B",
-    'root': HERE / "qwen3" / "hf-0.6B",
-    'tokenizer': HERE / "qwen3" / "hf-0.6B" / 'tokenizer.json'
+CONFIG_QWEN06 = {
+    "hf_name": "Qwen/Qwen3-0.6B",
+    'root_dir': HERE / "qwen3" / "hf-0.6B",
+    'tokenizer_dir': HERE / "qwen3" / "hf-0.6B" / 'tokenizer.json',
+    'eos_token_id': 151645,
+    'max_new_tokens': 5000, 
+    'temperature': 0.6,
+    'cached': True
 }
 
-CONFIG_QWEN06B = { # 0.6B model
+SPEC_QWEN06B = { # 0.6B model architecture
     "vocab_size": 151936,
     "tokens": 40960,
     "d_model": 1024,
@@ -28,18 +36,29 @@ CONFIG_QWEN06B = { # 0.6B model
     "dtype": torch.bfloat16
 }
 
-class ModelConfig:
-    def __init__(self, config):
-        self.vocab_size = config["vocab_size"]
-        self.tokens = config["tokens"]
-        self.d_model = config["d_model"]
-        self.n_heads = config["n_heads"]
-        self.n_layers = config["n_layers"]
-        self.n_groups = config["n_groups"]
-        self.d_linear = config["d_linear"]
-        self.d_head = config["d_head"]
-        self.rope_base = config["rope_base"]
-        self.dtype = config["dtype"]
+class InferenceConfig:
+    def __init__(self, config, spec=None):
+        self.arch = ModelSpec(spec) if spec else None
+        self.hf_name = config['hf_name']
+        self.root_dir = config['root_dir']
+        self.tokenizer_dir = config['tokenizer_dir']
+        self.eos_token_id = config['eos_token_id']
+        self.max_new_tokens = config['max_new_tokens']
+        self.temperature = config['temperature']
+        self.cached = config['cached']
+
+class ModelSpec:
+    def __init__(self, spec):
+        self.vocab_size = spec["vocab_size"]
+        self.tokens = spec["tokens"]
+        self.d_model = spec["d_model"]
+        self.n_heads = spec["n_heads"]
+        self.n_layers = spec["n_layers"]
+        self.n_groups = spec["n_groups"]
+        self.d_linear = spec["d_linear"]
+        self.d_head = spec["d_head"]
+        self.rope_base = spec["rope_base"]
+        self.dtype = spec["dtype"]
         
         # Validate parameters
         assert self.n_heads % self.n_groups == 0, \

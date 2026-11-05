@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .config import ModelConfig
+from .config import ModelSpec
 
 
 class Qwen3(nn.Module):
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: ModelSpec):
         super().__init__()
         self.config = config
         self.vocab_size = self.config.vocab_size

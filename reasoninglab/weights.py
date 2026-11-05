@@ -6,7 +6,7 @@ from safetensors.torch import load_file
 from .config import *
 
 
-def hf_to_local_format(config: ModelConfig, root: Path) -> dict:
+def hf_to_local_format(config: ModelSpec, root: Path) -> dict:
     hf = {}
     for f in Path(root).glob("*.safetensors"):   # 0.6B is one file; 4B is split across several
         hf.update(load_file(f))
@@ -25,9 +25,10 @@ def hf_to_local_format(config: ModelConfig, root: Path) -> dict:
             out[f'blocks.{i}.fcn{fcn_no+1}.weight'] = hf[f'model.layers.{i}.mlp.{fcn_name}_proj.weight']
     return out
 
+# For downloading the weights only
 if __name__ == "__main__":
     load_dotenv()
-    local_dir = PATH_QWEN06_BASE['root']
-    path = snapshot_download(PATH_QWEN06_BASE['HF_NAME'],
+    local_dir = CONFIG_QWEN06_BASE['root']
+    path = snapshot_download(CONFIG_QWEN06_BASE['HF_NAME'],
                             allow_patterns=["*.safetensors", "*.json"],
                             local_dir=local_dir)

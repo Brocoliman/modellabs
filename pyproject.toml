@@ -10,6 +10,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=2.5.4",
     "reasoning-from-scratch>=0.1.21",
+    "rich>=15.0.0",
     "safetensors>=0.8.0",
     "torch>=2.14.1",
     "torchinfo>=1.8.0",
