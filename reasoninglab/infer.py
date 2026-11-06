@@ -59,12 +59,12 @@ class ChatModel:
     @torch.inference_mode()
     def generate(self, token_ids: torch.Tensor) -> Generator[torch.Tensor, None, None]:
         self.model.eval()
-        
         for token_num in range(self.config.max_new_tokens):
             if token_num == 0 or not self.config.cached:
                 # Prefill
                 out, cache = self.model(token_ids)
             else:
+                # Decode
                 assert cache[0][0].shape[2] == T_cached
                 out, cache = self.model(token_ids[:,-1:], cache=cache, T_cached=T_cached)  # [B, 1, V]
             out = out[:, -1]  # last token [B, V]
