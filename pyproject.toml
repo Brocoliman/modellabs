@@ -12,6 +12,7 @@ dependencies = [
     "reasoning-from-scratch>=0.1.21",
     "rich>=15.0.0",
     "safetensors>=0.8.0",
+    "sympy>=1.14.0",
     "torch>=2.14.1",
     "torchinfo>=1.8.0",
     "transformers>=5.22.1",

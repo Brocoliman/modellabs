@@ -9,8 +9,9 @@ from rich.text import Text
 
 from .config import *
 from .model import Qwen3
-from .tokenizer import Qwen3Tokenizer
 from .weights import hf_to_local_format
+
+from ._vendor.tokenizer import Qwen3Tokenizer
 
 
 class ChatModel:
