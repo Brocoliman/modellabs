@@ -4,6 +4,8 @@ uv.lock
 .env
 
 qwen3/
+data/
+out/
 *.png
 *.pth
 *.safetensors
