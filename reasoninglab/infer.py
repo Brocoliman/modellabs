@@ -28,26 +28,28 @@ class ChatModel:
         self.model.load_state_dict(hf_to_local_format(self.spec, self.config.root_dir), strict=True)
         self.model.to(self.device)
 
-    def generate_text2text(self, prompt: str) -> str:
+    def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
         input_tensor = torch.tensor(input_ids).unsqueeze(0).to(self.device)  # [1, T]
         output_stream = ""
-        for output_token_id in self.generate(input_tensor):
+        for output_token_id in self.generate(input_tensor, **config):
             output_stream += self.tokenizer.decode(output_token_id.squeeze(0).tolist())
         return output_stream
 
-    def stream_stdout(self, prompt: str, debug=True):
+    def stream_stdout(self, prompt: str, debug=True, **config):
+        max_new_tokens = config.get('max_new_tokens') or self.config.max_new_tokens
+        
         input_ids = self.tokenizer.encode(prompt)
         input_tensor = torch.tensor(input_ids).unsqueeze(0).to(self.device)
         output_stream = ""
         time_start = time.perf_counter()
         with Live(refresh_per_second=10, transient=True, vertical_overflow="crop") as live:
-            for n, tok in enumerate(self.generate(input_tensor), 1):
+            for n, tok in enumerate(self.generate(input_tensor, **config), 1):
                 output_stream += self.tokenizer.decode(tok.squeeze(0).tolist())
                 elapsed = time.perf_counter()-time_start
                 live.update(
                     Text("====================\n"
-                        f"Tokens: {n}/{self.config.max_new_tokens}\n"
+                        f"Tokens: {n}/{max_new_tokens}\n"
                         f"Time elapsed: {elapsed}\n"
                         f"Tokens/s: {n/elapsed:02f}\n"
                         "====================\n"
