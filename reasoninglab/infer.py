@@ -26,7 +26,7 @@ class ChatModel:
         self.tokenizer = Qwen3Tokenizer(tokenizer_file_path=self.config.tokenizer_dir)
         self.model = Qwen3(self.spec)
         self.model.load_state_dict(hf_to_local_format(self.spec, self.config.root_dir), strict=True)
-        self.model.to(self.device)
+        self.model.to(self.device, dtype=torch.bfloat16)
 
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
