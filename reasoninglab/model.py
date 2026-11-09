@@ -13,6 +13,7 @@ class Qwen3(nn.Module):
         self.d_model = self.spec.d_model
         self.d_head = self.spec.d_head
         self.n_layers = self.spec.n_layers
+        self.n_groups = self.spec.n_groups
         self.rope_base = self.spec.rope_base
         self.tokens = self.spec.tokens
         
@@ -32,13 +33,12 @@ class Qwen3(nn.Module):
         self.register_buffer("rope_cos", torch.cos(angles), persistent=False)
         self.register_buffer("rope_sin", torch.sin(angles), persistent=False)
     
-    def forward(self, in_oh: torch.Tensor, 
-                cache: list[tuple[torch.Tensor, torch.Tensor]] = None, T_cached: int = 0): # (B, T) -> (B, T)
+    def forward(self, token_ids, *, T_max: int, T_cached: int = 0, K_cache = None, V_cache = None): # (B, T) -> (B, T)
         # Embed
-        x = self.embedding(in_oh)  # (B, T, d_model)
+        x = self.embedding(token_ids)  # (B, T, d_model)
         
         # Generate mask
-        T = x.shape[1]
+        B, T, _ = x.shape
         # lower including diagonal; the ones to KEEP
         tri = torch.ones([T, T], dtype=torch.bool, device=x.device).tril()
         fill = torch.ones([T,T_cached], dtype=torch.bool, device=x.device)
@@ -58,15 +58,19 @@ class Qwen3(nn.Module):
         """
         
         # Need updated cache
-        cache = cache if cache else [None] * self.spec.n_layers  # (n_layers, K/V, B, n_groups, T_cache, d_head)
+        # (n_layers, B, n_groups, T_cache, d_head)
+        if K_cache is None: K_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
+        if V_cache is None: V_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
         
+        # (B, n_groups, T_max, d_head)
         # Propagate through blocks
         for i, block in enumerate(self.blocks):
-            x, K_new, V_new = block(x, mask=mask, rope_cos=self.rope_cos, rope_sin=self.rope_sin, cache=cache[i], T_cached=T_cached)
-            cache[i] = K_new, V_new
+            x = block(x, mask=mask, 
+                rope_cos=self.rope_cos, rope_sin=self.rope_sin, 
+                K_cache=K_cache[i], V_cache=V_cache[i], T_cached=T_cached)
         x = self.norm(x) 
         logits = self.unembedding(x) # (B, T, V)
-        return logits, cache
+        return logits, K_cache, V_cache
 
 
 class TransformerBlock(nn.Module):
@@ -83,15 +87,16 @@ class TransformerBlock(nn.Module):
         self.fcn3 = nn.Linear(self.spec.d_linear, self.spec.d_model, bias=False)
     
     def forward(self, x, *, mask, rope_cos, rope_sin, 
-                cache: tuple[torch.Tensor, torch.Tensor] = None, T_cached: int = 0):  # (B, T, d_model)
+                K_cache, V_cache, T_cached: int = 0):  # (B, T, d_model)
         #if cache is not None: assert type(cache) == tuple or type(cache) == list, (cache, type(cache))
         pre_block = x
         x = self.norm1(x)
-        x, K, V = self.gqa(x, mask=mask, rope_cos=rope_cos, rope_sin=rope_sin, cache=cache, T_cached=T_cached)
+        x = self.gqa(x, mask=mask, rope_cos=rope_cos, rope_sin=rope_sin, 
+                                       K_cache=K_cache, V_cache=V_cache, T_cached=T_cached)
         x = x + pre_block
         x_rms2 = self.norm2(x)
         x = self.fcn3(F.silu(self.fcn1(x_rms2)) * self.fcn2(x_rms2)) + x
-        return x, K, V
+        return x
     
     
 class GQA(nn.Module):
@@ -119,7 +124,7 @@ class GQA(nn.Module):
         out = x * rope_cos[offset : offset + T] + x90 * rope_sin[offset : offset + T]
         return out
         
-    def forward(self, x, *, mask, rope_cos, rope_sin, cache: tuple[torch.Tensor, torch.Tensor] = None, T_cached: int = 0):  # (B, T, d_model) -> (B, T, d_model)
+    def forward(self, x, *, mask, rope_cos, rope_sin, K_cache, V_cache, T_cached: int = 0):  # (B, T, d_model) -> (B, T, d_model)
         B, T, _ = x.shape
         
         Q = self.Wq(x)  # (B, T, d_head * n_heads)
@@ -141,16 +146,15 @@ class GQA(nn.Module):
         K = self._rotate(K, rope_cos=rope_cos, rope_sin=rope_sin, offset=T_cached)
         
         # Cache
-        if cache is not None:
-            K_prev, V_prev = cache
-            K = torch.cat([K_prev, K], dim=2)  # (B, n_groups, T+T_cache, d_head)
-            V = torch.cat([V_prev, V], dim=2)  # (B, n_groups, T+T_cache, d_head)
+        # (B, n_groups, T_max, d_head)
+        K_cache[:, :, T_cached:T_cached+T] = K
+        V_cache[:, :, T_cached:T_cached+T] = V
         
-        # Copy over via repeat_interleave
-        # In Qwen's format, (H1,H2,H3,H4) wants (K1,K1,K2,K2) or contiguous groups along the heads
-        # K,V -> (B, n_heads, T+T_cached, d_head)
-        K_full = K.repeat_interleave(self.group_size, dim=1)
-        V_full = V.repeat_interleave(self.group_size, dim=1)
+        # # Copy over via repeat_interleave
+        # # In Qwen's format, (H1,H2,H3,H4) wants (K1,K1,K2,K2) or contiguous groups along the heads
+        # # K,V -> (B, n_heads, T+T_cached, d_head)
+        # K_full = K.repeat_interleave(self.group_size, dim=1)
+        # V_full = V.repeat_interleave(self.group_size, dim=1)
         
         # # Calc (Replaced by flashattention below)
         # # K -> (B, n_heads, d_head, T+T_cache)
@@ -159,12 +163,14 @@ class GQA(nn.Module):
         # A = A.masked_fill(mask, float('-inf')) # set all noncausal attention pairs to none
         # A = torch.softmax(A, dim=3) @ V_full  # (B, n_heads, T+T_cache, d_head)
         
-        # calc
-        A = F.scaled_dot_product_attention(Q, K_full, V_full, mask)  # (B, n_heads, T+T_cache, d_head)
+        # Attention
+        # (B, n_heads, T_max, d_head)
+        A = F.scaled_dot_product_attention(
+            Q, K_cache[:, :, :T_cached+T], V_cache[:, :, :T_cached+T], mask, enable_gqa=True)  
         
         # Mix the heads
         A = A.permute(0, 2, 1, 3)   # (B, T, n_heads, d_head)
         A = A.reshape(B, T, -1)     # (B, T, n_heads * d_head) not view because permute removed contiguity
         A = self.Wo(A)              # (B, T, d_model)
         
-        return A, K, V
+        return A
