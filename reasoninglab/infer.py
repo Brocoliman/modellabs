@@ -26,7 +26,7 @@ class ChatModel:
         self.tokenizer = Qwen3Tokenizer(tokenizer_file_path=self.config.tokenizer_dir)
         self.model = Qwen3(self.spec)
         self.model.load_state_dict(hf_to_local_format(self.spec, self.config.root_dir), strict=True)
-        self.model.to(self.device, dtype=torch.bfloat16)
+        self.model.to(self.device, dtype=self.spec.dtype)
 
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
@@ -37,7 +37,7 @@ class ChatModel:
         return output_stream
 
     def stream_stdout(self, prompt: str, debug=True, **config):
-        max_new_tokens = config.get('max_new_tokens') or self.config.max_new_tokens
+        max_new_tokens = config.get('max_new_tokens', self.config.max_new_tokens)
         
         input_ids = self.tokenizer.encode(prompt)
         input_tensor = torch.tensor(input_ids).unsqueeze(0).to(self.device)
@@ -66,15 +66,18 @@ class ChatModel:
         temperature = config.get('temperature', self.config.temperature)
         eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
         
+        T_max = max_new_tokens + token_ids.shape[1]
+        
         self.model.eval()
         for token_num in range(max_new_tokens):
             if token_num == 0 or not cached:
                 # Prefill
-                out, cache = self.model(token_ids)
+                out, K_cache, V_cache = self.model(token_ids, T_max=T_max)
             else:
                 # Decode
-                assert cache[0][0].shape[2] == T_cached
-                out, cache = self.model(token_ids[:,-1:], cache=cache, T_cached=T_cached)  # [B, 1, V]
+                # [B, 1, V]
+                out, K_cache, V_cache = self.model(token_ids[:,-1:], 
+                    T_max=T_max, T_cached=T_cached, K_cache=K_cache, V_cache=V_cache)  
             out = out[:, -1]  # last token [B, V]
             if temperature == 0:
                 sampled_token_id = torch.argmax(out, dim=1, keepdim=True)
@@ -91,7 +94,7 @@ if __name__ == "__main__":
     
     import sys
     prompt = ' '.join(sys.argv[1:]) if len(sys.argv)>1 else "Explain large language models: "
-    chatmodel.stream_stdout(prompt, temperature=0.6)
+    chatmodel.stream_stdout(prompt, temperature=0)
 
 r"""
 uv run python -m reasoninglab.infer 'In quadrilateral $ABCD$, $\angle B$ is a right angle, diagonal $\overline{AC}$ is perpendicular to $\overline{CD}$, $AB=18$, $BC=21$, and $CD=14$. Find the perimeter of $ABCD$. The answer is '
