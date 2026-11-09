@@ -61,10 +61,10 @@ class ChatModel:
 
     @torch.inference_mode()
     def generate(self, token_ids: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
-        max_new_tokens = config.get('max_new_tokens') or self.config.max_new_tokens
-        cached = config.get('cached') or self.config.cached
-        temperature = config.get('temperature') or self.config.temperature
-        eos_token_id = config.get('eos_token_id') or self.config.eos_token_id
+        max_new_tokens = config.get('max_new_tokens', self.config.max_new_tokens)
+        cached = config.get('cached', self.config.cached)
+        temperature = config.get('temperature', self.config.temperature)
+        eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
         
         self.model.eval()
         for token_num in range(max_new_tokens):
@@ -76,8 +76,11 @@ class ChatModel:
                 assert cache[0][0].shape[2] == T_cached
                 out, cache = self.model(token_ids[:,-1:], cache=cache, T_cached=T_cached)  # [B, 1, V]
             out = out[:, -1]  # last token [B, V]
-            probs = torch.softmax(out / temperature, 1)
-            sampled_token_id = torch.multinomial(probs, 1)
+            if temperature == 0:
+                sampled_token_id = torch.argmax(out, 1)
+            else:
+                probs = torch.softmax(out / temperature, 1)
+                sampled_token_id = torch.multinomial(probs, 1)
             if torch.all(sampled_token_id == eos_token_id): break
             T_cached = token_ids.shape[1]
             token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
