@@ -77,10 +77,10 @@ class ChatModel:
                 out, cache = self.model(token_ids[:,-1:], cache=cache, T_cached=T_cached)  # [B, 1, V]
             out = out[:, -1]  # last token [B, V]
             if temperature == 0:
-                sampled_token_id = torch.argmax(out, 1)
+                sampled_token_id = torch.argmax(out, dim=1, keepdim=True)
             else:
-                probs = torch.softmax(out / temperature, 1)
-                sampled_token_id = torch.multinomial(probs, 1)
+                probs = torch.softmax(out / temperature, dim=1)
+                sampled_token_id = torch.multinomial(probs, num_samples=1)
             if torch.all(sampled_token_id == eos_token_id): break
             T_cached = token_ids.shape[1]
             token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     
     import sys
     prompt = ' '.join(sys.argv[1:]) if len(sys.argv)>1 else "Explain large language models: "
-    chatmodel.stream_stdout(prompt)
+    chatmodel.stream_stdout(prompt, temperature=0.6)
 
 r"""
 uv run python -m reasoninglab.infer 'In quadrilateral $ABCD$, $\angle B$ is a right angle, diagonal $\overline{AC}$ is perpendicular to $\overline{CD}$, $AB=18$, $BC=21$, and $CD=14$. Find the perimeter of $ABCD$. The answer is '
