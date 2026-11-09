@@ -146,11 +146,11 @@ class GQA(nn.Module):
             K = torch.cat([K_prev, K], dim=2)  # (B, n_groups, T+T_cache, d_head)
             V = torch.cat([V_prev, V], dim=2)  # (B, n_groups, T+T_cache, d_head)
         
-        # Copy over via repeat_interleave
-        # In Qwen's format, (H1,H2,H3,H4) wants (K1,K1,K2,K2) or contiguous groups along the heads
-        # K,V -> (B, n_heads, T+T_cached, d_head)
-        K_full = K.repeat_interleave(self.group_size, dim=1)
-        V_full = V.repeat_interleave(self.group_size, dim=1)
+        # # Copy over via repeat_interleave
+        # # In Qwen's format, (H1,H2,H3,H4) wants (K1,K1,K2,K2) or contiguous groups along the heads
+        # # K,V -> (B, n_heads, T+T_cached, d_head)
+        # K_full = K.repeat_interleave(self.group_size, dim=1)
+        # V_full = V.repeat_interleave(self.group_size, dim=1)
         
         # # Calc (Replaced by flashattention below)
         # # K -> (B, n_heads, d_head, T+T_cache)
@@ -160,7 +160,7 @@ class GQA(nn.Module):
         # A = torch.softmax(A, dim=3) @ V_full  # (B, n_heads, T+T_cache, d_head)
         
         # calc
-        A = F.scaled_dot_product_attention(Q, K_full, V_full, mask)  # (B, n_heads, T+T_cache, d_head)
+        A = F.scaled_dot_product_attention(Q, K, V, mask, enable_gqa=True)  # (B, n_heads, T+T_cache, d_head)
         
         # Mix the heads
         A = A.permute(0, 2, 1, 3)   # (B, T, n_heads, d_head)
