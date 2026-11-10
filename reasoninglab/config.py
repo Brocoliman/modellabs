@@ -10,7 +10,8 @@ CONFIG_QWEN06_BASE = {
     'eos_token_id': 151643,
     'max_new_tokens': 5000, 
     'temperature': 0.6,
-    'cached': True
+    'cached': True,
+    'nucleus_top_p': 0.9,
 }
 
 CONFIG_QWEN06 = {
@@ -46,6 +47,7 @@ class InferenceConfig:
         self.max_new_tokens = config['max_new_tokens']
         self.temperature = config['temperature']
         self.cached = config['cached']
+        self.nucleus_top_p = config['nucleus_top_p']
 
 class ModelSpec:
     def __init__(self, spec):

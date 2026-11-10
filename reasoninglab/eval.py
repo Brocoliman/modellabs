@@ -66,7 +66,10 @@ class Math500Evaluator:
 
 
 if __name__ == "__main__":
-    chatmodel = ChatModel(SPEC_QWEN06B, CONFIG_QWEN06_BASE)
+    config = CONFIG_QWEN06_BASE
+    config['temperature'] = 0.3
+    config['nucleus_top_p'] = 0.9
+    chatmodel = ChatModel(SPEC_QWEN06B, config)
     
     with open('reasoninglab/data/math500_test.json') as f:
         tasks = json.load(f)

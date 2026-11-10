@@ -65,6 +65,7 @@ class ChatModel:
         cached = config.get('cached', self.config.cached)
         temperature = config.get('temperature', self.config.temperature)
         eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
+        nucleus_top_p = config.get('nucleus_top_p', self.config.nucleus_top_p)
         
         T_max = max_new_tokens + token_ids.shape[1]
         
@@ -82,8 +83,20 @@ class ChatModel:
             if temperature == 0:
                 sampled_token_id = torch.argmax(out, dim=1, keepdim=True)
             else:
-                probs = torch.softmax(out / temperature, dim=1)
-                sampled_token_id = torch.multinomial(probs, num_samples=1)
+                # Logits -> probs
+                probs = torch.softmax(out / temperature, dim=1)  # [B, V]
+                # Require top-p sampling? e.g. keep only tokens that are within top 80%
+                if nucleus_top_p is None:
+                    sampled_token_id = torch.multinomial(probs, num_samples=1)
+                else:
+                    # Collect nucleus
+                    probs_sorted, sorted_idx = torch.sort(probs, dim=1, descending=True)
+                    probs_acc = torch.cumsum(probs_sorted, dim=1)
+                    keep_mask = (probs_acc <= nucleus_top_p)
+                    if torch.all(keep_mask == False): keep_mask[:,0] = True # ensure at least one token in
+                    probs_nucleus_sorted = torch.where(keep_mask, probs_sorted, torch.zeros_like(probs))
+                    probs_nucleus = torch.zeros_like(probs).scatter(1, sorted_idx, probs_nucleus_sorted)
+                    sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
             if torch.all(sampled_token_id == eos_token_id): break
             T_cached = token_ids.shape[1]
             token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
@@ -94,7 +107,7 @@ if __name__ == "__main__":
     
     import sys
     prompt = ' '.join(sys.argv[1:]) if len(sys.argv)>1 else "Explain large language models: "
-    chatmodel.stream_stdout(prompt, temperature=0)
+    chatmodel.stream_stdout(prompt)
 
 r"""
 uv run python -m reasoninglab.infer 'In quadrilateral $ABCD$, $\angle B$ is a right angle, diagonal $\overline{AC}$ is perpendicular to $\overline{CD}$, $AB=18$, $BC=21$, and $CD=14$. Find the perimeter of $ABCD$. The answer is '
