@@ -1,7 +1,4 @@
-from datasets import load_dataset
 from dotenv import load_dotenv
-from collections.abc import Iterable
-import json
 
 from .manifest import TaskManifest, Task
 from ..config import *
@@ -52,22 +49,18 @@ Reply with ONLY the correct answer. Answer:
 # =====
 
 class MMLUManifest(TaskManifest):
-    data_path = Path(PATH_MMLU)
+    bench_name = 'mmlu'
+    hf_path = 'cais/mmlu'
+    hf_name = 'all'
+    splits = ('dev', 'validation', 'test', 'auxiliary_train')
+    query_key = 'question'
+    answer_key = 'answer'
     
-    def __init__(self, template=MMLU_TEMP_VANILLA):
-        super().__init__(template)
+    def __init__(self, split='dev', template=MMLU_TEMP_VANILLA):
+        super().__init__(split, template)
         assert self.template.find('{query}') != -1, 'Could not find {query} in prompt template'
         for i in range(0,4):
             assert self.template.find(f'{{choices[{i}]}}') != -1, f'Could not find {{choices[{i}]}} in prompt template'
-        
-    def load(self, indices: Iterable = None):
-        with open(MMLUManifest.data_path) as f:
-            tasks_raw: list[dict] = [json.loads(line) for line in f if line.strip()]
-            if indices is not None:
-                tasks_raw = [(i, tasks_raw[i]) for i in indices]
-            for id, task_raw in enumerate(tasks_raw):
-                task = Task(id=id, query=task_raw['question'], answer=task_raw['answer'], properties=task_raw)
-                self.tasks.update({task.id: task})
     
     def chat_prompt(self, task: Task) -> str:
         return self.template.format(query=task.query, choices=task.properties['choices'])
@@ -78,18 +71,13 @@ class MMLUManifest(TaskManifest):
         given_answer: str = extract_final_candidate(output, fallback=None)
         
         # Parsing
-        if given_answer is None:
+        if not given_answer:  # if it fellback
             feedback = f"Did not get a boxed answer"
             score = 0
         elif given_answer.isnumeric():
             feedback = f"Got answer {given_answer}"
             score = int(correct_answer == int(given_answer))
         else:
-            feedback += f"Got answer {given_answer}, this is not a valid number"
+            feedback = f"Got answer {given_answer}, this is not a valid number"
             score = 0
         return score, feedback
-
-    @staticmethod
-    def download(split='dev'):
-        hf_dataset = load_dataset("cais/mmlu", "all", split=split)
-        hf_dataset.to_json(MMLUManifest.data_path)

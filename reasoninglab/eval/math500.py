@@ -1,7 +1,4 @@
-from datasets import load_dataset
 from dotenv import load_dotenv
-from collections.abc import Iterable
-import json
 
 from .manifest import TaskManifest, Task
 from ..config import *
@@ -38,20 +35,16 @@ Let's walk through this step by step:
 # =====
 
 class Math500Manifest(TaskManifest):
-    data_path = Path(PATH_MATH500)
+    bench_name = 'math500'
+    hf_path = 'HuggingFaceH4/MATH-500'
+    hf_name = 'default'
+    splits = ('test',)
+    query_key = 'problem'
+    answer_key = 'answer'
     
-    def __init__(self, template=MATH500_TEMP_COT):
-        super().__init__(template)
+    def __init__(self, split='test', template=MATH500_TEMP_COT):
+        super().__init__(split, template)
         assert self.template.find('{query}') != -1, 'Could not find {query} in prompt template'
-    
-    def load(self, indices: Iterable = None):
-        with open(Math500Manifest.data_path) as f:
-            tasks_raw: list[dict] = [json.loads(line) for line in f if line.strip()]
-            if indices is not None:
-                tasks_raw = [(i, tasks_raw[i]) for i in indices]
-            for id, task_raw in tasks_raw:
-                task = Task(id=id, query=task_raw['problem'], answer=task_raw['answer'], properties=task_raw)
-                self.tasks.update({task.id: task})
     
     def chat_prompt(self, task: Task) -> str:
         return self.template.format(query=task.query)
@@ -63,8 +56,3 @@ class Math500Manifest(TaskManifest):
         score = grade_answer(given_answer, correct_answer)
         feedback = f"Got answer {given_answer}"
         return int(score), feedback
-
-    @staticmethod
-    def download():
-        hf_dataset = load_dataset("HuggingFaceH4/MATH-500", split="test")
-        hf_dataset.to_json(Math500Manifest.data_path)

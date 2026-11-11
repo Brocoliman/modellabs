@@ -45,8 +45,7 @@ SPEC_QWEN06B = { # 0.6B model architecture
 
 # ===== Benchmark paths
 
-PATH_MATH500 = HERE / 'data' / 'math500_test.jsonl'
-PATH_MMLU = HERE / 'data' / 'mmlu_dev.jsonl'
+PATH_DATA = HERE / 'data'
 
 # ===== 
 class InferenceConfig:

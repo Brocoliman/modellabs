@@ -45,4 +45,4 @@ class Runner:
                     elapsed = time.perf_counter() - start_time
                     tqdm.write(f"Progress: {i}/{num_tasks} |  Correct: {num_correct} | Elapsed: {elapsed:0.3f}")
         accuracy = num_correct/num_tasks*100
-        print(f"Accuracy: {num_correct}/{num_tasks} or {accuracy:03f}")
+        print(f"Accuracy: {num_correct}/{num_tasks} or {accuracy:.3f}")

@@ -1,6 +1,5 @@
 import argparse
 from pathlib import Path
-import os
 
 from ..config import *
 from ..infer import ChatModel
@@ -12,6 +11,7 @@ config = dict(CONFIG_QWEN06_BASE)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--bench', '--benchmark', choices=['math500', 'mmlu'], default='math500')
+parser.add_argument('--split', type=str, default='test')
 parser.add_argument('--template', choices=['cot', 'vanilla', 'answer-only'], default='cot')
 parser.add_argument('--max-tokens', '--max-new-tokens', type=int, default=config['max_new_tokens'])
 parser.add_argument('--temp', '--temperature', type=float, default=config['temperature'])
@@ -37,16 +37,15 @@ config['temperature'] = args.temp
 config['nucleus_top_p'] = args.p
 chatmodel = ChatModel(SPEC_QWEN06B, config)
 
-tasks.load(range(*args.task_range) if args.tasks_range else None)
+tasks.load(indices=range(*args.task_range) if args.task_range else None, download=True)
 
 out_path = (f'reasoninglab/out/records_{args.bench}_{args.template}.jsonl') if args.output_dir is None else args.output_dir
-os.mkdir(out_path, parents=True, exist_ok=True)
+if out_path is not None: Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-evaluator = Runner(chatmodel, tasks=tasks, out_path=args.output_dir)
+evaluator = Runner(chatmodel, tasks=tasks, out_path=out_path)
 evaluator.run()
 
 """
-uv run -m reasoninglab.scripts.eval --bench math500 --template answer-only --max-tokens 5000 --temp 0.3 --p 0.85 --task-range 0 100
-uv run -m reasoninglab.scripts.eval --bench mmlu --template vanilla --max-tokens 5000 --temp 0.3 --p 0.85 --task-range 0 100
-uv run -m reasoninglab.scripts.eval --bench mmlu --template cot --max-tokens 5000 --temp 0.3 --p 0.85 --task-range 0 100
+uv run -m reasoninglab.scripts.eval --bench math500 --template answer-only --max-tokens 5000 --temp 0.3 --p 0.85 --task-range 0 50
+uv run -m reasoninglab.scripts.eval --bench mmlu --split dev --template vanilla --max-tokens 5000 --temp 0.3 --p 0.85 --task-range 0 50
 """
