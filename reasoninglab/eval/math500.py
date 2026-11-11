@@ -12,21 +12,22 @@ load_dotenv()
 
 # ===== Prompts
 
-MATH500_PROMPT_VANILLA = '''
+MATH500_TEMP_VANILLA = '''
 You are a helpful math assistant.
 Answer the question and write the final result on a new line as:
 \\boxed{{ANSWER}}\n
 Question:\n{query}\n\nAnswer:
 '''
 
-MATH500_PROMPT_ANSWER_ONLY = '''
+MATH500_TEMP_ANSWER_ONLY = '''
 You are a helpful math assistant.
-Reply with ONLY the correct answer on the new line as:
+Answer the question and write the final result on a new line as:
 \\boxed{{ANSWER}}\n
-Question:\n{query}\n\nAnswer:
+Question:\n{query}\n\n
+Reply with ONLY the correct answer. Answer:
 '''  # note there is nothing to enforce the given condition
 
-MATH500_PROMPT_COT = '''
+MATH500_TEMP_COT = '''
 You are a helpful math assistant.
 Answer the question and write the final result on a new line as:
 \\boxed{{ANSWER}}\n
@@ -39,7 +40,7 @@ Let's walk through this step by step:
 class Math500Manifest(TaskManifest):
     data_path = Path(PATH_MATH500)
     
-    def __init__(self, template=MATH500_PROMPT_COT):
+    def __init__(self, template=MATH500_TEMP_COT):
         super().__init__(template)
         assert self.template.find('{query}') != -1, 'Could not find {query} in prompt template'
     
@@ -57,11 +58,11 @@ class Math500Manifest(TaskManifest):
     
     def grade(self, output: str, task_id: int) -> tuple[int, str]:
         task = self._get_task(task_id)
-        correct_answer = task.answer
-        given_answer = extract_final_candidate(output)
-        is_correct = grade_answer(given_answer, correct_answer)
+        correct_answer: str = task.answer
+        given_answer: str = extract_final_candidate(output)
+        score = grade_answer(given_answer, correct_answer)
         feedback = f"Got answer {given_answer}"
-        return int(is_correct), feedback
+        return int(score), feedback
 
     @staticmethod
     def download():

@@ -6,32 +6,59 @@ import json
 from .manifest import TaskManifest, Task
 from ..config import *
 
+from .._vendor.verifier import extract_final_candidate
+
 load_dotenv()
 
 # ===== Prompts
 
-MMLU_PROMPT_VANILLA = '''
+MMLU_TEMP_VANILLA = '''
 You are an expert academic assistant taking a high-level multiple-choice examination.
-Write the number of the correct answer on a new line in double brackets as
-[[0 or 1 or 2 or 3]]\n
+There is only one correct option.
+Write the number of the correct answer on a new line as:
+\\boxed{{NUMBER}}\n
 Question:\n{query}\n
 0. {choices[0]}
 1. {choices[1]}
 2. {choices[2]}
 3. {choices[3]}
+Answer:
 '''
-
+MMLU_TEMP_COT = '''
+You are an expert academic assistant taking a high-level multiple-choice examination.
+There is only one correct option.
+Write the number of the correct answer on a new line as:
+\\boxed{{NUMBER}}\n
+Question:\n{query}\n
+0. {choices[0]}
+1. {choices[1]}
+2. {choices[2]}
+3. {choices[3]}
+Let's walk through this step by step:
+'''
+MMLU_TEMP_ANSWER_ONLY = '''
+You are an expert academic assistant taking a high-level multiple-choice examination.
+There is only one correct option.
+Write the number of the correct answer on a new line as:
+\\boxed{{NUMBER}}\n
+Question:\n{query}\n
+0. {choices[0]}
+1. {choices[1]}
+2. {choices[2]}
+3. {choices[3]}
+Reply with ONLY the correct answer. Answer:
+'''
 
 # =====
 
 class MMLUManifest(TaskManifest):
     data_path = Path(PATH_MMLU)
     
-    def __init__(self, template=MMLU_PROMPT_VANILLA):
+    def __init__(self, template=MMLU_TEMP_VANILLA):
         super().__init__(template)
         assert self.template.find('{query}') != -1, 'Could not find {query} in prompt template'
         for i in range(0,4):
-            assert self.template.find(f'{{choices}}[{i}]') != -1, f'Could not find {{choices}}[{i}] in prompt template'
+            assert self.template.find(f'{{choices[{i}]}}') != -1, f'Could not find {{choices[{i}]}} in prompt template'
         
     def load(self, indices: Iterable = None):
         with open(MMLUManifest.data_path) as f:
@@ -43,10 +70,21 @@ class MMLUManifest(TaskManifest):
                 self.tasks.update({task.id: task})
     
     def chat_prompt(self, task: Task) -> str:
-        return self.template.format(query=task.query)
+        return self.template.format(query=task.query, choices=task.properties['choices'])
 
     def grade(self, output: str, task_id: int) -> tuple[int, str]:
-        return NotImplementedError
+        task = self._get_task(task_id)
+        correct_answer: int = task.answer
+        given_answer: str = extract_final_candidate(output)
+        
+        # Parsing
+        feedback = f"Got answer {given_answer}"
+        if given_answer.isnumeric():
+            score = int(correct_answer == int(given_answer))
+        else:
+            feedback += ", this is not a valid number"
+            score = 0
+        return score, feedback
 
     @staticmethod
     def download():

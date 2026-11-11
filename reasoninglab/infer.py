@@ -13,7 +13,6 @@ from .weights import hf_to_local_format
 
 from ._vendor.tokenizer import Qwen3Tokenizer
 
-EOS_LITERAL = '\x01'
 
 class ChatModel:
     def __init__(self, spec, config):
