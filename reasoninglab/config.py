@@ -42,7 +42,7 @@ SPEC_QWEN06B = { # 0.6B model architecture
     "dtype": torch.bfloat16
 }
 
-# ===== Prompts
+# ===== Benchmark paths
 
 PATH_MATH500 = HERE / 'data' / 'math500_test.jsonl'
 PATH_MMLU = HERE / 'data' / 'mmlu_dev.jsonl'

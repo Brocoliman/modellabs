@@ -6,7 +6,7 @@ from ..eval.runner import Runner
 from ..eval.math500 import Math500Manifest
 from ..eval.mmlu import MMLUManifest
 
-MMLUManifest.download()
+#MMLUManifest.download()
 
 Math500Manifest.download()
 config = CONFIG_QWEN06_BASE

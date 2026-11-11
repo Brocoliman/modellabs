@@ -49,7 +49,7 @@ class Math500Manifest(TaskManifest):
             if indices is not None:
                 tasks_raw = [tasks_raw[i] for i in indices]
             for i, task_raw in enumerate(tasks_raw):
-                task = Task(id=i, problem=task_raw['problem'], answer=task_raw['answer'], properties=task_raw)
+                task = Task(id=i, query=task_raw['problem'], answer=task_raw['answer'], properties=task_raw)
                 self.tasks.update({task.id: task})
     
     def chat_prompt(self, task: Task) -> str:
