@@ -3,6 +3,9 @@ HERE = Path(__file__).resolve().parent
 
 import torch
 
+
+# ===== Inference configs
+
 CONFIG_QWEN06_BASE = {
     "hf_name": "Qwen/Qwen3-0.6B-Base",
     'root_dir': HERE / "qwen3" / "hf-0.6B-base",
@@ -24,6 +27,8 @@ CONFIG_QWEN06 = {
     'cached': True
 }
 
+# ===== Model architectures
+
 SPEC_QWEN06B = { # 0.6B model architecture
     "vocab_size": 151936,
     "tokens": 40960,
@@ -37,6 +42,12 @@ SPEC_QWEN06B = { # 0.6B model architecture
     "dtype": torch.bfloat16
 }
 
+# ===== Prompts
+
+PATH_MATH500 = HERE / 'data' / 'math500_test.jsonl'
+PATH_MMLU = HERE / 'data' / 'mmlu_dev.jsonl'
+
+# ===== 
 class InferenceConfig:
     def __init__(self, config, spec=None):
         self.arch = ModelSpec(spec) if spec else None
