@@ -24,7 +24,8 @@ CONFIG_QWEN06 = {
     'eos_token_id': 151645,
     'max_new_tokens': 5000, 
     'temperature': 0.6,
-    'cached': True
+    'cached': True,
+    'nucleus_top_p': 0.9,
 }
 
 # ===== Model architectures

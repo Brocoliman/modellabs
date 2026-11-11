@@ -64,9 +64,9 @@ class MMLUManifest(TaskManifest):
         with open(MMLUManifest.data_path) as f:
             tasks_raw: list[dict] = [json.loads(line) for line in f if line.strip()]
             if indices is not None:
-                tasks_raw = [tasks_raw[i] for i in indices]
-            for i, task_raw in enumerate(tasks_raw):
-                task = Task(id=i, query=task_raw['question'], answer=task_raw['answer'], properties=task_raw)
+                tasks_raw = [(i, tasks_raw[i]) for i in indices]
+            for id, task_raw in enumerate(tasks_raw):
+                task = Task(id=id, query=task_raw['question'], answer=task_raw['answer'], properties=task_raw)
                 self.tasks.update({task.id: task})
     
     def chat_prompt(self, task: Task) -> str:
@@ -75,18 +75,21 @@ class MMLUManifest(TaskManifest):
     def grade(self, output: str, task_id: int) -> tuple[int, str]:
         task = self._get_task(task_id)
         correct_answer: int = task.answer
-        given_answer: str = extract_final_candidate(output)
+        given_answer: str = extract_final_candidate(output, fallback=None)
         
         # Parsing
-        feedback = f"Got answer {given_answer}"
-        if given_answer.isnumeric():
+        if given_answer is None:
+            feedback = f"Did not get a boxed answer"
+            score = 0
+        elif given_answer.isnumeric():
+            feedback = f"Got answer {given_answer}"
             score = int(correct_answer == int(given_answer))
         else:
-            feedback += ", this is not a valid number"
+            feedback += f"Got answer {given_answer}, this is not a valid number"
             score = 0
         return score, feedback
 
     @staticmethod
-    def download():
-        hf_dataset = load_dataset("cais/mmlu", "all", split="dev")
+    def download(split='dev'):
+        hf_dataset = load_dataset("cais/mmlu", "all", split=split)
         hf_dataset.to_json(MMLUManifest.data_path)

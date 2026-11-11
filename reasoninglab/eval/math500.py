@@ -48,9 +48,9 @@ class Math500Manifest(TaskManifest):
         with open(Math500Manifest.data_path) as f:
             tasks_raw: list[dict] = [json.loads(line) for line in f if line.strip()]
             if indices is not None:
-                tasks_raw = [tasks_raw[i] for i in indices]
-            for i, task_raw in enumerate(tasks_raw):
-                task = Task(id=i, query=task_raw['problem'], answer=task_raw['answer'], properties=task_raw)
+                tasks_raw = [(i, tasks_raw[i]) for i in indices]
+            for id, task_raw in tasks_raw:
+                task = Task(id=id, query=task_raw['problem'], answer=task_raw['answer'], properties=task_raw)
                 self.tasks.update({task.id: task})
     
     def chat_prompt(self, task: Task) -> str:

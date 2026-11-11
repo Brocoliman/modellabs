@@ -35,7 +35,8 @@ class Runner:
                     'problem': task.query,
                     'correct_answer': task.answer,
                     'output': output,
-                    'feedback': f"Feedback: {feedback} | Finish reason: {finish_reason}",
+                    'feedback': feedback,
+                    'finish_reason': finish_reason,
                     'score': score
                 }
                 f.write(json.dumps(record, ensure_ascii=False) + '\n')
@@ -43,3 +44,5 @@ class Runner:
                 if i % 10 == 0:
                     elapsed = time.perf_counter() - start_time
                     tqdm.write(f"Progress: {i}/{num_tasks} |  Correct: {num_correct} | Elapsed: {elapsed:0.3f}")
+        accuracy = num_correct/num_tasks*100
+        print(f"Accuracy: {num_correct}/{num_tasks} or {accuracy:03f}")

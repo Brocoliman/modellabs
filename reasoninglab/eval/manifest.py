@@ -18,13 +18,13 @@ class TaskManifest:
         self.template = template
         
     def load(self, indices: Iterable = None):
-        pass
+        raise NotImplementedError
     
     def chat_prompt(self, task) -> str:
-        pass
+        raise NotImplementedError
     
     def grade(self, output: str, task_id: Hashable) -> tuple[int, str]:
-        pass
+        raise NotImplementedError
     
     def _get_task(self, task_id: Hashable):
         return self.tasks[task_id]
@@ -37,5 +37,5 @@ class TaskManifest:
     
     @staticmethod
     def download() -> None:
-        pass
+        raise NotImplementedError
 

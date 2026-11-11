@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import os
 
 from ..config import *
 from ..infer import ChatModel
@@ -7,7 +8,7 @@ from ..eval.runner import Runner
 from ..eval.math500 import *
 from ..eval.mmlu import *
 
-config = CONFIG_QWEN06_BASE
+config = dict(CONFIG_QWEN06_BASE)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--bench', '--benchmark', choices=['math500', 'mmlu'], default='math500')
@@ -16,7 +17,7 @@ parser.add_argument('--max-tokens', '--max-new-tokens', type=int, default=config
 parser.add_argument('--temp', '--temperature', type=float, default=config['temperature'])
 parser.add_argument('--p', '--nucleus-top-p', type=float, default=config['nucleus_top_p'])
 parser.add_argument("--task-range", nargs=2, type=int, default=None)
-parser.add_argument("--output-dir", type=Path, default='reasoninglab/out/records_math500.jsonl')
+parser.add_argument("--output-dir", type=Path, default=None)
 args = parser.parse_args()
 
 
@@ -36,7 +37,10 @@ config['temperature'] = args.temp
 config['nucleus_top_p'] = args.p
 chatmodel = ChatModel(SPEC_QWEN06B, config)
 
-tasks.load(range(*args.task_range))
+tasks.load(range(*args.task_range) if args.tasks_range else None)
+
+out_path = (f'reasoninglab/out/records_{args.bench}_{args.template}.jsonl') if args.output_dir is None else args.output_dir
+os.mkdir(out_path, parents=True, exist_ok=True)
 
 evaluator = Runner(chatmodel, tasks=tasks, out_path=args.output_dir)
 evaluator.run()

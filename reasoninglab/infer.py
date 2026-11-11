@@ -106,8 +106,7 @@ class ChatModel:
                     # Collect nucleus
                     probs_sorted, sorted_idx = torch.sort(probs, dim=1, descending=True)
                     probs_acc = torch.cumsum(probs_sorted, dim=1)
-                    keep_mask = (probs_acc <= nucleus_top_p)
-                    if torch.all(keep_mask == False): keep_mask[:,0] = True # ensure at least one token in
+                    keep_mask = (probs_acc-probs_sorted < nucleus_top_p)  # keep if cumprob before it is < p
                     probs_nucleus_sorted = torch.where(keep_mask, probs_sorted, torch.zeros_like(probs))
                     probs_nucleus = torch.zeros_like(probs).scatter(1, sorted_idx, probs_nucleus_sorted)
                     sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
