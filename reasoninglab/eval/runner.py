@@ -6,9 +6,8 @@ import json
 from tqdm import tqdm
 
 from ..config import *
-from .manifest import TaskManifest
-from .math500 import Math500Manifest
 from ..infer import ChatModel
+from .manifest import TaskManifest
 
 
 # =======================================
@@ -33,7 +32,7 @@ class Runner:
                 
                 record = {
                     'task_id': str(task_id),
-                    'problem': task.problem,
+                    'problem': task.query,
                     'correct_answer': task.answer,
                     'output': output,
                     'feedback': feedback,
@@ -44,18 +43,3 @@ class Runner:
                 if i % 10 == 0:
                     elapsed = time.perf_counter() - start_time
                     tqdm.write(f"Progress: {i}/{num_tasks} |  Correct: {num_correct} | Elapsed: {elapsed:0.3f}")
-
-
-if __name__ == "__main__":
-    Math500Manifest.download()
-    config = CONFIG_QWEN06_BASE
-    config['temperature'] = 0.3
-    config['nucleus_top_p'] = 0.9
-    chatmodel = ChatModel(SPEC_QWEN06B, config)
-    
-    tasks = Math500Manifest()
-    tasks.load(range(10))
-    
-    evaluator = Runner(chatmodel, 
-            tasks=tasks, out_path='reasoninglab/out/records_math500.jsonl')
-    evaluator.run()

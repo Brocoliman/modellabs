@@ -2,7 +2,6 @@ from datasets import load_dataset
 from dotenv import load_dotenv
 from collections.abc import Iterable
 import json
-from uuid import UUID
 
 from .manifest import TaskManifest, Task
 from ..config import *
@@ -13,16 +12,27 @@ load_dotenv()
 
 # ===== Prompts
 
-MATH500_PROMPT_VANILLA = '''You are a helpful math assistant.
+MATH500_PROMPT_VANILLA = '''
+You are a helpful math assistant.
 Answer the question and write the final result on a new line as:
 \\boxed{{ANSWER}}\n
-Question:\n{task}\n\nAnswer:'''
+Question:\n{query}\n\nAnswer:
+'''
 
-MATH500_PROMPT_COT = '''You are a helpful math assistant.
+MATH500_PROMPT_ANSWER_ONLY = '''
+You are a helpful math assistant.
+Reply with ONLY the correct answer on the new line as:
+\\boxed{{ANSWER}}\n
+Question:\n{query}\n\nAnswer:
+'''  # note there is nothing to enforce the given condition
+
+MATH500_PROMPT_COT = '''
+You are a helpful math assistant.
 Answer the question and write the final result on a new line as:
 \\boxed{{ANSWER}}\n
-Question:\n{task}\n\n
-Let's walk through this step by step:'''
+Question:\n{query}\n\n
+Let's walk through this step by step:
+'''
 
 # =====
 
@@ -31,7 +41,7 @@ class Math500Manifest(TaskManifest):
     
     def __init__(self, template=MATH500_PROMPT_COT):
         super().__init__(template)
-        assert self.template.find('{task}') != -1, 'Could not find {task} in prompt template'
+        assert self.template.find('{query}') != -1, 'Could not find {query} in prompt template'
     
     def load(self, indices: Iterable = None):
         with open(Math500Manifest.data_path) as f:
@@ -39,13 +49,13 @@ class Math500Manifest(TaskManifest):
             if indices is not None:
                 tasks_raw = [tasks_raw[i] for i in indices]
             for i, task_raw in enumerate(tasks_raw):
-                task = Task(idx=i, problem=task_raw['problem'], answer=task_raw['answer'], properties=task_raw)
+                task = Task(id=i, problem=task_raw['problem'], answer=task_raw['answer'], properties=task_raw)
                 self.tasks.update({task.id: task})
     
     def chat_prompt(self, task: Task) -> str:
-        return self.template.format(task=task.problem)
+        return self.template.format(query=task.query)
     
-    def grade(self, output: str, task_id: UUID) -> tuple[int, str]:
+    def grade(self, output: str, task_id: int) -> tuple[int, str]:
         task = self._get_task(task_id)
         correct_answer = task.answer
         given_answer = extract_final_candidate(output)

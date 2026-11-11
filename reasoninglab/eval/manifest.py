@@ -1,13 +1,11 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Hashable
 from pathlib import Path
-from uuid import UUID, uuid4
 
 
 class Task:
-    def __init__(self, *, idx: int, problem: str, answer: str, properties: dict):
-        self.id = uuid4()
-        self.idx = idx
-        self.problem = problem
+    def __init__(self, *, id: Hashable,  query: str, answer: str, properties: dict = None):
+        self.id = id
+        self.query = query
         self.answer = answer
         self.properties = properties
 
@@ -16,7 +14,7 @@ class TaskManifest:
     data_path: Path
     
     def __init__(self, template: str):
-        self.tasks: dict[UUID, Task] = dict()
+        self.tasks: dict[Hashable, Task] = dict()
         self.template = template
         
     def load(self, indices: Iterable = None):
@@ -25,10 +23,10 @@ class TaskManifest:
     def chat_prompt(self, task) -> str:
         pass
     
-    def grade(self, output: str, task_id: UUID) -> tuple[int, str]:
+    def grade(self, output: str, task_id: Hashable) -> tuple[int, str]:
         pass
     
-    def _get_task(self, task_id: UUID):
+    def _get_task(self, task_id: Hashable):
         return self.tasks[task_id]
     
     def __iter__(self):
@@ -41,4 +39,3 @@ class TaskManifest:
     def download() -> None:
         pass
 
-        
