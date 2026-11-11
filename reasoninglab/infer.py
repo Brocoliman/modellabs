@@ -75,24 +75,37 @@ class ChatModel:
 
     @torch.inference_mode()
     def generate(self, token_ids: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
+        # token_ids to be shape [B, T]
+        B, T = token_ids.shape
+        finished = torch.zeros((B,), dtype=torch.bool)
+        
+        # inference parameters
         max_new_tokens = config.get('max_new_tokens', self.config.max_new_tokens)
         cached = config.get('cached', self.config.cached)
         temperature = config.get('temperature', self.config.temperature)
         eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
         nucleus_top_p = config.get('nucleus_top_p', self.config.nucleus_top_p)
-        
-        T_max = max_new_tokens + token_ids.shape[1]
+        T_max = max_new_tokens + token_ids.shape[1]  # required for the KV cache size
         
         self.model.eval()
-        for token_num in range(max_new_tokens):
-            if token_num == 0 or not cached:
+        decode = True
+        while not torch.all(finished):
+            # Forward prog
+            if decode or not cached:
                 # Prefill
+                # token_ids:    (B, T, V)
+                # out:          (B, T, V)
+                # caches:       (n_layers, B, n_groups, T_max, d_head)
                 out, K_cache, V_cache = self.model(token_ids, T_max=T_max)
+                decode = False
             else:
                 # Decode
-                # [B, 1, V]
+                # last token [B, 1, V] -> out, caches
                 out, K_cache, V_cache = self.model(token_ids[:,-1:], 
                     T_max=T_max, T_cached=T_cached, K_cache=K_cache, V_cache=V_cache)  
+            
+            # Sample
+            # sampled_token_id: [B, 1]
             out = out[:, -1]  # last token [B, V]
             if temperature == 0:
                 sampled_token_id = torch.argmax(out, dim=1, keepdim=True)
@@ -110,12 +123,15 @@ class ChatModel:
                     probs_nucleus_sorted = torch.where(keep_mask, probs_sorted, torch.zeros_like(probs))
                     probs_nucleus = torch.zeros_like(probs).scatter(1, sorted_idx, probs_nucleus_sorted)
                     sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
-            if torch.all(sampled_token_id == eos_token_id): 
-                return 'STOPPED'
+            
+            # Output handling
+            finished = (finished or sampled_token_id == eos_token_id)  # anything that was not finished yet, if it printed EOS it is finished
             T_cached = token_ids.shape[1]
             token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
             yield sampled_token_id
-        return 'EXCEEDED MAX TOKENS'
+        
+        finish_reason = ['FINISHED' if i else 'EXCEEDED MAX TOKENS' for i in finished ]
+        return finish_reason
 
 if __name__ == "__main__":
     chatmodel = ChatModel(SPEC_QWEN06B, CONFIG_QWEN06_BASE)

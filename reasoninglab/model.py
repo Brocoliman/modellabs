@@ -58,7 +58,7 @@ class Qwen3(nn.Module):
         """
         
         # Need updated cache
-        # (n_layers, B, n_groups, T_cache, d_head)
+        # (n_layers, B, n_groups, T_max, d_head)
         if K_cache is None: K_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
         if V_cache is None: V_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
         
