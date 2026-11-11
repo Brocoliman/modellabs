@@ -13,6 +13,7 @@ from .weights import hf_to_local_format
 
 from ._vendor.tokenizer import Qwen3Tokenizer
 
+EOS_LITERAL = '\x01'
 
 class ChatModel:
     def __init__(self, spec, config):
@@ -31,10 +32,16 @@ class ChatModel:
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
         input_tensor = torch.tensor(input_ids).unsqueeze(0).to(self.device)  # [1, T]
-        output_stream = ""
-        for output_token_id in self.generate(input_tensor, **config):
-            output_stream += self.tokenizer.decode(output_token_id.squeeze(0).tolist())
-        return output_stream
+        output = ""
+        gen_stream = self.generate(input_tensor, **config)
+        while True:
+            try:
+                tok = next(gen_stream)
+            except StopIteration as e:
+                finish_reason = e.value
+                break
+            output += self.tokenizer.decode(tok.squeeze(0).tolist())
+        return output, finish_reason
 
     def stream_stdout(self, prompt: str, debug=True, **config):
         max_new_tokens = config.get('max_new_tokens', self.config.max_new_tokens)
@@ -44,7 +51,14 @@ class ChatModel:
         output_stream = ""
         time_start = time.perf_counter()
         with Live(refresh_per_second=10, transient=True, vertical_overflow="crop") as live:
-            for n, tok in enumerate(self.generate(input_tensor, **config), 1):
+            gen_stream = self.generate(input_tensor, **config)
+            n = 1
+            while True:
+                try:
+                    tok = next(gen_stream)
+                except StopIteration as e:
+                    finish_reason = e.value
+                    break
                 output_stream += self.tokenizer.decode(tok.squeeze(0).tolist())
                 elapsed = time.perf_counter()-time_start
                 live.update(
@@ -57,6 +71,7 @@ class ChatModel:
                          if debug else output_stream
                          )
                 )
+                n += 1
         Console().print(output_stream)
 
     @torch.inference_mode()
@@ -97,10 +112,12 @@ class ChatModel:
                     probs_nucleus_sorted = torch.where(keep_mask, probs_sorted, torch.zeros_like(probs))
                     probs_nucleus = torch.zeros_like(probs).scatter(1, sorted_idx, probs_nucleus_sorted)
                     sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
-            if torch.all(sampled_token_id == eos_token_id): break
+            if torch.all(sampled_token_id == eos_token_id): 
+                return 'STOPPED'
             T_cached = token_ids.shape[1]
             token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
             yield sampled_token_id
+        return 'EXCEEDED MAX TOKENS'
 
 if __name__ == "__main__":
     chatmodel = ChatModel(SPEC_QWEN06B, CONFIG_QWEN06_BASE)

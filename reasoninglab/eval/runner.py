@@ -25,7 +25,7 @@ class Runner:
         with open(self.out_path, 'w') as f:
             for i, (task_id, task) in enumerate(tqdm(self.tasks), start=1):
                 prompt = self.tasks.chat_prompt(task)
-                output = self.chatmodel.generate_text2text(prompt)
+                output, finish_reason = self.chatmodel.generate_text2text(prompt)
                 
                 score, feedback = self.tasks.grade(output, task_id)
                 num_correct += score
@@ -35,7 +35,7 @@ class Runner:
                     'problem': task.query,
                     'correct_answer': task.answer,
                     'output': output,
-                    'feedback': feedback,
+                    'feedback': f"Feedback: {feedback} | Finish reason: {finish_reason}",
                     'score': score
                 }
                 f.write(json.dumps(record, ensure_ascii=False) + '\n')
