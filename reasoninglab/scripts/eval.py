@@ -16,6 +16,7 @@ parser.add_argument('--template', choices=['cot', 'vanilla', 'answer-only'], def
 parser.add_argument('--max-tokens', '--max-new-tokens', type=int, default=config['max_new_tokens'])
 parser.add_argument('--temp', '--temperature', type=float, default=config['temperature'])
 parser.add_argument('--p', '--nucleus-top-p', type=float, default=config['nucleus_top_p'])
+parser.add_argument('--k', '--consistency-k', type=int, default=config['consistency_k'])
 parser.add_argument("--task-range", nargs=2, type=int, default=None)
 parser.add_argument("--output-dir", type=Path, default=None)
 args = parser.parse_args()
@@ -35,6 +36,7 @@ else:
 config['max_new_tokens'] = args.max_tokens
 config['temperature'] = args.temp
 config['nucleus_top_p'] = args.p
+config['consistency_k'] = args.k
 chatmodel = ChatModel(SPEC_QWEN06B, config)
 
 tasks.load(indices=range(*args.task_range) if args.task_range else None, download=True)

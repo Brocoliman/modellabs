@@ -46,7 +46,10 @@ class TaskManifest:
     def chat_prompt(self, task) -> str:
         raise NotImplementedError
     
-    def grade(self, output: str, task_id: Hashable) -> tuple[int, str]:
+    def grade(self, extracted_answer: str, task: Task) -> tuple[int, str]:
+        raise NotImplementedError
+    
+    def extract_normalized_answer(self, output: str) -> str:
         raise NotImplementedError
     
     def _get_task(self, task_id: Hashable):

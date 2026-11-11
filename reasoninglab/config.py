@@ -15,6 +15,7 @@ CONFIG_QWEN06_BASE = {
     'temperature': 0.6,
     'cached': True,
     'nucleus_top_p': 0.9,
+    'consistency_k': 1,
 }
 
 CONFIG_QWEN06 = {
@@ -26,6 +27,7 @@ CONFIG_QWEN06 = {
     'temperature': 0.6,
     'cached': True,
     'nucleus_top_p': 0.9,
+    'consistency_k': 1,
 }
 
 # ===== Model architectures
@@ -50,15 +52,16 @@ PATH_DATA = HERE / 'data'
 # ===== 
 class InferenceConfig:
     def __init__(self, config, spec=None):
-        self.arch = ModelSpec(spec) if spec else None
-        self.hf_name = config['hf_name']
-        self.root_dir = config['root_dir']
-        self.tokenizer_dir = config['tokenizer_dir']
-        self.eos_token_id = config['eos_token_id']
-        self.max_new_tokens = config['max_new_tokens']
-        self.temperature = config['temperature']
-        self.cached = config['cached']
-        self.nucleus_top_p = config['nucleus_top_p']
+        self.arch: ModelSpec = ModelSpec(spec) if spec else None
+        self.hf_name: str = config['hf_name']
+        self.root_dir: Path = config['root_dir']
+        self.tokenizer_dir: Path = config['tokenizer_dir']
+        self.eos_token_id: int = config['eos_token_id']
+        self.max_new_tokens: int = config['max_new_tokens']
+        self.temperature: float = config['temperature']
+        self.cached: bool = config['cached']
+        self.nucleus_top_p: float = config['nucleus_top_p']
+        self.consistency_k: int = config['consistency_k']
 
 class ModelSpec:
     def __init__(self, spec):

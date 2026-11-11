@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from .manifest import TaskManifest, Task
 from ..config import *
 
-from .._vendor.verifier import grade_answer, extract_final_candidate
+from .._vendor.verifier import grade_answer, extract_final_candidate, normalize_text
 
 load_dotenv()
 
@@ -49,10 +49,11 @@ class Math500Manifest(TaskManifest):
     def chat_prompt(self, task: Task) -> str:
         return self.template.format(query=task.query)
     
-    def grade(self, output: str, task_id: int) -> tuple[int, str]:
-        task = self._get_task(task_id)
+    def grade(self, extracted_answer: str, task: Task) -> tuple[int, str, str]:
         correct_answer: str = task.answer
-        given_answer: str = extract_final_candidate(output)
-        score = grade_answer(given_answer, correct_answer)
-        feedback = f"Got answer {given_answer}"
-        return int(score), feedback
+        score = grade_answer(extracted_answer, correct_answer)
+        feedback = ''
+        return int(score), extracted_answer, feedback
+
+    def extract_normalized_answer(self, output: str) -> str:
+        return normalize_text(extract_final_candidate(output))

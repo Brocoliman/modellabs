@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from .manifest import TaskManifest, Task
 from ..config import *
 
-from .._vendor.verifier import extract_final_candidate
+from .._vendor.verifier import extract_final_candidate, normalize_text
 
 load_dotenv()
 
@@ -65,19 +65,21 @@ class MMLUManifest(TaskManifest):
     def chat_prompt(self, task: Task) -> str:
         return self.template.format(query=task.query, choices=task.properties['choices'])
 
-    def grade(self, output: str, task_id: int) -> tuple[int, str]:
-        task = self._get_task(task_id)
+    def grade(self, extracted_answer: str, task: Task) -> tuple[int, str, str]:
         correct_answer: int = task.answer
-        given_answer: str = extract_final_candidate(output, fallback=None)
         
         # Parsing
-        if not given_answer:  # if it fellback
-            feedback = f"Did not get a boxed answer"
+        if not extracted_answer:  # if it fellback
+            feedback = 'Did not get a boxed answer'
             score = 0
-        elif given_answer.isnumeric():
-            feedback = f"Got answer {given_answer}"
-            score = int(correct_answer == int(given_answer))
+        elif extracted_answer.isnumeric():
+            feedback = 'Graded'
+            score = int(correct_answer == int(extracted_answer))
         else:
-            feedback = f"Got answer {given_answer}, this is not a valid number"
+            feedback = 'Not a valid number'
             score = 0
-        return score, feedback
+        return score, extracted_answer, feedback
+    
+    def extract_normalized_answer(self, output: str) -> str:
+        # don't need to normalize because it's 0, 1, 2, 3
+        return extract_final_candidate(output, fallback=None)  
