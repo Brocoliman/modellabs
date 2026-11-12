@@ -65,7 +65,7 @@ class MMLUManifest(TaskManifest):
     def chat_prompt(self, task: Task) -> str:
         return self.template.format(query=task.query, choices=task.properties['choices'])
 
-    def grade(self, extracted_answer: str, task: Task) -> tuple[int, str, str]:
+    def grade(self, extracted_answer: str, task: Task) -> tuple[int, str]:
         correct_answer: int = task.answer
         
         # Parsing

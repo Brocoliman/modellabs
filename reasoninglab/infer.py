@@ -92,8 +92,7 @@ class ChatModel:
         
         self.model.eval()
         prefill = True
-        T_cached = 0
-        while not torch.all(finished) and T_cached < T_max:
+        for step in range(max_new_tokens):
             # Forward prog
             if prefill or not cached:
                 # Prefill
@@ -139,6 +138,9 @@ class ChatModel:
             T_cached = token_ids.shape[1]
             assert sampled_token_id.shape == (B, 1)
             token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
+            
+            # Exit condition
+            if torch.all(finished): break
         
         finish_reason = ['FINISHED' if i else 'EXCEEDED MAX TOKENS' for i in finished ]
         return finish_reason

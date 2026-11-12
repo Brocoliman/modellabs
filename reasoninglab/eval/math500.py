@@ -49,7 +49,7 @@ class Math500Manifest(TaskManifest):
     def chat_prompt(self, task: Task) -> str:
         return self.template.format(query=task.query)
     
-    def grade(self, extracted_answer: str, task: Task) -> tuple[int, str, str]:
+    def grade(self, extracted_answer: str, task: Task) -> tuple[int, str]:
         correct_answer: str = task.answer
         score = grade_answer(extracted_answer, correct_answer)
         feedback = ''

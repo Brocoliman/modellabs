@@ -60,8 +60,11 @@ class Runner:
             except StopIteration as e:
                 finish_reason = e.value
                 break
+            # convert to plain
+            fin = finished.tolist()
+            toks = tok_batch.squeeze(1).tolist()
             for i in range(num_samples):
-                if not finished[i]: outputs[i] += tok_batch[i].tolist()
+                if not fin[i]: outputs[i] += toks[i].tolist()
         
         outputs = [self.chatmodel.tokenizer.decode(output) for output in outputs]
         return outputs, finish_reason
