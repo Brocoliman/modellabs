@@ -26,10 +26,10 @@ args = parser.parse_args()
 
 if args.bench == 'math500':
     templates = {'cot': MATH500_TEMP_COT, 'vanilla': MATH500_TEMP_VANILLA, 'answer-only': MATH500_TEMP_ANSWER_ONLY}
-    tasks = Math500Manifest(template=templates[args.template])
+    tasks = Math500Manifest(template=templates[args.template], split=args.split)
 elif args.bench == 'mmlu':
     templates = {'cot': MMLU_TEMP_COT, 'vanilla': MMLU_TEMP_VANILLA, 'answer-only': MMLU_TEMP_ANSWER_ONLY}
-    tasks = MMLUManifest(template=templates[args.template])
+    tasks = MMLUManifest(template=templates[args.template], split=args.split)
 else:
     raise ValueError
 

@@ -32,7 +32,7 @@ class TaskManifest:
         self.template = template
         
     def load(self, *, indices: Iterable = None, download: bool = False):
-        if not self.data_path.is_file() and download is not None: self.download()
+        if not self.data_path.is_file() and download: self.download()
         with open(self.data_path) as f:
             tasks_raw: list[dict] = [json.loads(line) for line in f if line.strip()]
             if indices is None:

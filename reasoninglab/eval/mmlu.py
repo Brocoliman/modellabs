@@ -78,7 +78,7 @@ class MMLUManifest(TaskManifest):
         else:
             feedback = 'Not a valid number'
             score = 0
-        return score, extracted_answer, feedback
+        return score, feedback
     
     def extract_normalized_answer(self, output: str) -> str:
         # don't need to normalize because it's 0, 1, 2, 3

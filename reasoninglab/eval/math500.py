@@ -53,7 +53,7 @@ class Math500Manifest(TaskManifest):
         correct_answer: str = task.answer
         score = grade_answer(extracted_answer, correct_answer)
         feedback = ''
-        return int(score), extracted_answer, feedback
+        return int(score), feedback
 
     def extract_normalized_answer(self, output: str) -> str:
-        return normalize_text(extract_final_candidate(output))
+        return normalize_text(extract_final_candidate(output, fallback=None))

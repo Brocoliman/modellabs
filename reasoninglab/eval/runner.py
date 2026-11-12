@@ -48,35 +48,38 @@ class Runner:
     
     def samples(self, task, num_samples=1) -> tuple[list[str], list[str]]:
         prompt = self.tasks.chat_prompt(task)
-        input_ids = self.tokenizer.encode(prompt)
+        input_ids = self.chatmodel.tokenizer.encode(prompt)
         
         # [num_samples, T]
-        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(num_samples, 0).to(self.device)
-        outputs = [str()] * num_samples
-        gen_stream = self.generate(input_tensor)
+        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(num_samples, 1).to(self.chatmodel.device)
+        outputs = [list() for _ in range(num_samples)]
+        gen_stream = self.chatmodel.generate(input_tensor)
         while True:
             try:
-                tok_batch = next(gen_stream)
+                tok_batch, finished = next(gen_stream)
             except StopIteration as e:
                 finish_reason = e.value
                 break
             for i in range(num_samples):
-                outputs[i] += self.tokenizer.decode(tok_batch[i].tolist())
+                if not finished[i]: outputs[i] += tok_batch[i].tolist()
+        
+        outputs = [self.chatmodel.tokenizer.decode(output) for output in outputs]
         return outputs, finish_reason
 
     def grade(self, task, outputs: list[str], finish_reasons: list[str]) -> tuple[list[dict], str, int, str]:
         num_samples = len(outputs)
         sample_template = {'output': ..., 'finish_reason':..., 'extracted': ..., 'score': ..., 'feedback': ...}
-        samples: list[dict] = [sample_template.copy()] * num_samples
+        samples: list[dict] = [sample_template.copy() for _ in range(num_samples)]
         answer_counts: dict[str, int] = dict()
         final_answer: str = None
         
         # Find max answer first
         for i, (output, finish_reason) in enumerate(zip(outputs, finish_reasons)):
             extracted_answer = self.tasks.extract_normalized_answer(output)
-            answer_counts[extracted_answer] = answer_counts.get(extracted_answer, 0) + 1
-            if answer_counts[extracted_answer] > answer_counts[final_answer]:
-                final_answer = extracted_answer
+            if extracted_answer != '':  # exclude answers that are likely not valid from the vote 
+                answer_counts[extracted_answer] = answer_counts.get(extracted_answer, 0) + 1
+                if answer_counts[extracted_answer] > answer_counts.get(final_answer, 0):
+                    final_answer = extracted_answer
             samples[i]['output'] = output
             samples[i]['finish_reason'] = finish_reason
             samples[i]['extracted'] = extracted_answer

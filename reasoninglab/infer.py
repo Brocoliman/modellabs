@@ -31,15 +31,17 @@ class ChatModel:
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
         input_tensor = torch.tensor(input_ids).unsqueeze(0).to(self.device)  # [1, T]
-        output = ""
+        output = list()
         gen_stream = self.generate(input_tensor, **config)
         while True:
             try:
-                tok = next(gen_stream)
+                tok_batch, finished = next(gen_stream)
+                assert tok_batch.shape[0] == 1, "stream_stdout does not accept multi-sample"
             except StopIteration as e:
                 finish_reason = e.value
                 break
-            output += self.tokenizer.decode(tok.squeeze(0).tolist())
+            output += tok_batch.squeeze(0).tolist()
+        output = self.tokenizer.decode(output)
         return output, finish_reason
 
     def stream_stdout(self, prompt: str, debug=True, **config):
@@ -54,11 +56,12 @@ class ChatModel:
             n = 1
             while True:
                 try:
-                    tok = next(gen_stream)
+                    tok_batch, finished = next(gen_stream)
+                    assert tok_batch.shape[0] == 1, "stream_stdout does not accept multi-sample"
                 except StopIteration as e:
                     finish_reason = e.value
                     break
-                output_stream += self.tokenizer.decode(tok.squeeze(0).tolist())
+                output_stream += self.tokenizer.decode(tok_batch.squeeze(0).tolist())
                 elapsed = time.perf_counter()-time_start
                 live.update(
                     Text("====================\n"
@@ -77,7 +80,7 @@ class ChatModel:
     def generate(self, token_ids: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
         # token_ids to be shape [B, T]
         B, T = token_ids.shape
-        finished = torch.zeros((B,), dtype=torch.bool)
+        finished = torch.zeros((B,), dtype=torch.bool, device=token_ids.device)
         
         # inference parameters
         max_new_tokens = config.get('max_new_tokens', self.config.max_new_tokens)
@@ -88,16 +91,17 @@ class ChatModel:
         T_max = max_new_tokens + token_ids.shape[1]  # required for the KV cache size
         
         self.model.eval()
-        decode = True
-        while not torch.all(finished):
+        prefill = True
+        T_cached = 0
+        while not torch.all(finished) and T_cached < T_max:
             # Forward prog
-            if decode or not cached:
+            if prefill or not cached:
                 # Prefill
                 # token_ids:    (B, T, V)
                 # out:          (B, T, V)
                 # caches:       (n_layers, B, n_groups, T_max, d_head)
                 out, K_cache, V_cache = self.model(token_ids, T_max=T_max)
-                decode = False
+                prefill = False
             else:
                 # Decode
                 # last token [B, 1, V] -> out, caches
@@ -125,10 +129,16 @@ class ChatModel:
                     sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
             
             # Output handling
-            finished = (finished or sampled_token_id == eos_token_id)  # anything that was not finished yet, if it printed EOS it is finished
+            # anything that was not finished yet, if it printed EOS it is finished
+            # finished (B, ) | comp (B, 1 -> B,)
+            finished = finished | (sampled_token_id == eos_token_id).squeeze(1)
+            sampled_token_id = torch.where(finished.unsqueeze(1), eos_token_id, sampled_token_id)
+            yield sampled_token_id, finished
+            
+            # Update cache pointer
             T_cached = token_ids.shape[1]
+            assert sampled_token_id.shape == (B, 1)
             token_ids = torch.cat([token_ids, sampled_token_id], dim=1)
-            yield sampled_token_id
         
         finish_reason = ['FINISHED' if i else 'EXCEEDED MAX TOKENS' for i in finished ]
         return finish_reason
