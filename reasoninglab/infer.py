@@ -16,9 +16,9 @@ from ._vendor.tokenizer import Qwen3Tokenizer
 
 class ChatModel:
     def __init__(self, spec, config):
-        self.device = torch.device("mps")
         self.spec = ModelSpec(spec)
         self.config = InferenceConfig(config, spec)
+        self.device = self.config.device
         self.load()
     
     def load(self):

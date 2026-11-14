@@ -10,24 +10,26 @@ CONFIG_QWEN06_BASE = {
     "hf_name": "Qwen/Qwen3-0.6B-Base",
     'root_dir': HERE / "qwen3" / "hf-0.6B-base",
     'tokenizer_dir': HERE / "qwen3" / "hf-0.6B-base" / 'tokenizer.json',
+    'device': 'mps',
     'eos_token_id': 151643,
     'max_new_tokens': 5000, 
     'temperature': 0.6,
     'cached': True,
     'nucleus_top_p': 0.9,
-    'consistency_k': 1,
+    'consistency_k': 1
 }
 
 CONFIG_QWEN06 = {
     "hf_name": "Qwen/Qwen3-0.6B",
     'root_dir': HERE / "qwen3" / "hf-0.6B",
     'tokenizer_dir': HERE / "qwen3" / "hf-0.6B" / 'tokenizer.json',
+    'device': 'mps',
     'eos_token_id': 151645,
     'max_new_tokens': 5000, 
     'temperature': 0.6,
     'cached': True,
     'nucleus_top_p': 0.9,
-    'consistency_k': 1,
+    'consistency_k': 1
 }
 
 # ===== Model architectures
@@ -56,6 +58,7 @@ class InferenceConfig:
         self.hf_name: str = config['hf_name']
         self.root_dir: Path = config['root_dir']
         self.tokenizer_dir: Path = config['tokenizer_dir']
+        self.device: str = config['device']
         self.eos_token_id: int = config['eos_token_id']
         self.max_new_tokens: int = config['max_new_tokens']
         self.temperature: float = config['temperature']
