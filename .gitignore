@@ -6,6 +6,7 @@ uv.lock
 qwen3/
 data/
 out/
+_temp/
 *.png
 *.pth
 *.safetensors

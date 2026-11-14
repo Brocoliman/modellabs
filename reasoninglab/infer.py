@@ -76,6 +76,26 @@ class ChatModel:
                 n += 1
         Console().print(output_stream)
 
+    def _logprobs(self, token_ids: torch.Tensor) -> torch.Tensor:
+        B, T = token_ids.shape
+        logits, _, _ = self.model(token_ids, T_max=T+1)  # (B, T, V)
+        logprobs = torch.log_softmax(logits.float(), dim=-1)[:, :-1]  # (B, T-1, V); need fp32
+        posterior_ids = token_ids[:, 1:]  # (B, T-1)
+        
+        # The intuition
+        # match at each batch & token, posterior_ids[b][t] is the index to get
+        # for which v in logprobs[b][t][v]
+        # logprobs: (B, T-1, V)
+        # posterior_ids: (B, T-1) -> (B, T-1, 1)
+        token_logprobs = logprobs.gather(dim=-1, index=posterior_ids.unsqueeze(-1)).squeeze(-1)
+
+        # # Same as below
+        # token_logprobs = torch.empty([B, T-1])
+        # for b in range(B):
+        #     for t in range(T-1): 
+        #         condprobs[b, t] = logprobs[b, t, posterior_ids[b, t]]
+        return token_logprobs
+        
     @torch.inference_mode()
     def generate(self, token_ids: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
         # token_ids to be shape [B, T]
@@ -119,17 +139,11 @@ class ChatModel:
                 if nucleus_top_p is None:
                     sampled_token_id = torch.multinomial(probs, num_samples=1)
                 else:
-                    # Collect nucleus
-                    probs_sorted, sorted_idx = torch.sort(probs, dim=1, descending=True)
-                    probs_acc = torch.cumsum(probs_sorted, dim=1)
-                    keep_mask = (probs_acc-probs_sorted < nucleus_top_p)  # keep if cumprob before it is < p
-                    probs_nucleus_sorted = torch.where(keep_mask, probs_sorted, torch.zeros_like(probs))
-                    probs_nucleus = torch.zeros_like(probs).scatter(1, sorted_idx, probs_nucleus_sorted)
-                    sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
+                    sampled_token_id = self._sample_nucleus(probs, nucleus_top_p=nucleus_top_p)
             
             # Output handling
             # anything that was not finished yet, if it printed EOS it is finished
-            # finished (B, ) | comp (B, 1 -> B,)
+            # updated the finished (B, ) | comp (B, 1 -> B,)
             finished = finished | (sampled_token_id == eos_token_id).squeeze(1)
             sampled_token_id = torch.where(finished.unsqueeze(1), eos_token_id, sampled_token_id)
             yield sampled_token_id, finished
@@ -144,6 +158,17 @@ class ChatModel:
         
         finish_reason = ['FINISHED' if i else 'EXCEEDED MAX TOKENS' for i in finished ]
         return finish_reason
+    
+    def _sample_nucleus(self, probs: torch.tensor, *, nucleus_top_p: int) -> torch.tensor:
+        # Collect nucleus
+        probs_sorted, sorted_idx = torch.sort(probs, dim=1, descending=True)
+        probs_acc = torch.cumsum(probs_sorted, dim=1)
+        keep_mask = (probs_acc-probs_sorted < nucleus_top_p)  # keep if cumprob before it is < p
+        probs_nucleus_sorted = torch.where(keep_mask, probs_sorted, torch.zeros_like(probs))
+        probs_nucleus = torch.zeros_like(probs).scatter(1, sorted_idx, probs_nucleus_sorted)
+        # Sample nucleus
+        sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
+        return sampled_token_id
 
 if __name__ == "__main__":
     chatmodel = ChatModel(SPEC_QWEN06B, CONFIG_QWEN06_BASE)
