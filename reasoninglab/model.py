@@ -33,16 +33,10 @@ class Qwen3(nn.Module):
         self.register_buffer("rope_cos", torch.cos(angles), persistent=False)
         self.register_buffer("rope_sin", torch.sin(angles), persistent=False)
     
-    def forward(self, token_ids, *, T_max: int, T_cached: int = 0, K_cache = None, V_cache = None): # (B, T) -> (B, T)
+    def forward(self, token_ids, *, use_cache: bool = True, T_max: int = None, T_cached: int = 0, K_cache = None, V_cache = None): # (B, T) -> (B, T)
         # Embed
         x = self.embedding(token_ids)  # (B, T, d_model)
-        
-        # Generate mask
         B, T, _ = x.shape
-        # lower including diagonal; the ones to KEEP
-        tri = torch.ones([T, T], dtype=torch.bool, device=x.device).tril()
-        fill = torch.ones([T,T_cached], dtype=torch.bool, device=x.device)
-        mask = torch.cat([fill, tri], dim=1)
         
         """
         T=2, T_cached=3
@@ -57,17 +51,26 @@ class Qwen3(nn.Module):
          11111
         """
         
-        # Need updated cache
+        # Need updated cache; if not use cache, then keep it passed as None
         # (n_layers, B, n_groups, T_max, d_head)
-        if K_cache is None: K_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
-        if V_cache is None: V_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
+        if K_cache is None and use_cache: K_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
+        if V_cache is None and use_cache: V_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
+        
+        if use_cache:
+            # Generate mask
+            # lower including diagonal; the ones to KEEP
+            tri = torch.ones([T, T], dtype=torch.bool, device=x.device).tril()
+            fill = torch.ones([T,T_cached], dtype=torch.bool, device=x.device)
+            mask = torch.cat([fill, tri], dim=1)
         
         # (B, n_groups, T_max, d_head)
         # Propagate through blocks
         for i, block in enumerate(self.blocks):
-            x = block(x, mask=mask, 
-                rope_cos=self.rope_cos, rope_sin=self.rope_sin, 
-                K_cache=K_cache[i], V_cache=V_cache[i], T_cached=T_cached)
+            if use_cache:
+                x = block(x, rope_cos=self.rope_cos, rope_sin=self.rope_sin, 
+                    mask=mask, K_cache=K_cache[i], V_cache=V_cache[i], T_cached=T_cached)
+            else:
+                x = block(x, rope_cos=self.rope_cos, rope_sin=self.rope_sin)
         x = self.norm(x) 
         logits = self.unembedding(x) # (B, T, V)
         return logits, K_cache, V_cache
@@ -86,13 +89,13 @@ class TransformerBlock(nn.Module):
         self.fcn2 = nn.Linear(self.spec.d_model, self.spec.d_linear, bias=False)
         self.fcn3 = nn.Linear(self.spec.d_linear, self.spec.d_model, bias=False)
     
-    def forward(self, x, *, mask, rope_cos, rope_sin, 
-                K_cache, V_cache, T_cached: int = 0):  # (B, T, d_model)
+    def forward(self, x, *, rope_cos, rope_sin, mask=None,
+                K_cache=None, V_cache=None, T_cached: int = 0):  # (B, T, d_model)
         #if cache is not None: assert type(cache) == tuple or type(cache) == list, (cache, type(cache))
         pre_block = x
         x = self.norm1(x)
         x = self.gqa(x, mask=mask, rope_cos=rope_cos, rope_sin=rope_sin, 
-                                       K_cache=K_cache, V_cache=V_cache, T_cached=T_cached)
+            K_cache=K_cache, V_cache=V_cache, T_cached=T_cached)
         x = x + pre_block
         x_rms2 = self.norm2(x)
         x = self.fcn3(F.silu(self.fcn1(x_rms2)) * self.fcn2(x_rms2)) + x
@@ -124,7 +127,7 @@ class GQA(nn.Module):
         out = x * rope_cos[offset : offset + T] + x90 * rope_sin[offset : offset + T]
         return out
         
-    def forward(self, x, *, mask, rope_cos, rope_sin, K_cache, V_cache, T_cached: int = 0):  # (B, T, d_model) -> (B, T, d_model)
+    def forward(self, x, *, rope_cos, rope_sin, mask, K_cache=None, V_cache=None, T_cached: int = 0):  # (B, T, d_model) -> (B, T, d_model)
         B, T, _ = x.shape
         
         Q = self.Wq(x)  # (B, T, d_head * n_heads)
@@ -147,10 +150,13 @@ class GQA(nn.Module):
         
         # Cache
         # (B, n_groups, T_max, d_head)
-        K_cache[:, :, T_cached:T_cached+T] = K
-        V_cache[:, :, T_cached:T_cached+T] = V
+        assert (K_cache is not None) == (V_cache is not None), f"{K_cache} and {V_cache}"
+        use_cache = K_cache is not None
+        if use_cache: 
+            K_cache[:, :, T_cached:T_cached+T] = K
+            V_cache[:, :, T_cached:T_cached+T] = V
         
-        # # Copy over via repeat_interleave
+        # # Copy over via repeat_interleave (Replaced by enable_gqa=True)
         # # In Qwen's format, (H1,H2,H3,H4) wants (K1,K1,K2,K2) or contiguous groups along the heads
         # # K,V -> (B, n_heads, T+T_cached, d_head)
         # K_full = K.repeat_interleave(self.group_size, dim=1)
@@ -165,8 +171,12 @@ class GQA(nn.Module):
         
         # Attention
         # (B, n_heads, T_max, d_head)
-        A = F.scaled_dot_product_attention(
-            Q, K_cache[:, :, :T_cached+T], V_cache[:, :, :T_cached+T], mask, enable_gqa=True)  
+        if use_cache:
+            A = F.scaled_dot_product_attention(
+                Q, K_cache[:, :, :T_cached+T], V_cache[:, :, :T_cached+T], mask, enable_gqa=True) 
+        else:
+             A = F.scaled_dot_product_attention(
+                Q, K, V, is_causal=True, enable_gqa=True) 
         
         # Mix the heads
         A = A.permute(0, 2, 1, 3)   # (B, T, n_heads, d_head)

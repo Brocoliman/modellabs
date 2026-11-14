@@ -78,7 +78,7 @@ class ChatModel:
 
     def _logprobs(self, token_ids: torch.Tensor) -> torch.Tensor:
         B, T = token_ids.shape
-        logits, _, _ = self.model(token_ids, T_max=T+1)  # (B, T, V)
+        logits, _, _ = self.model(token_ids, use_cache=False)  # (B, T, V)
         logprobs = torch.log_softmax(logits.float(), dim=-1)[:, :-1]  # (B, T-1, V); need fp32
         posterior_ids = token_ids[:, 1:]  # (B, T-1)
         
@@ -114,13 +114,15 @@ class ChatModel:
         prefill = True
         for step in range(max_new_tokens):
             # Forward prog
-            if prefill or not cached:
+            if prefill and cached:
                 # Prefill
                 # token_ids:    (B, T, V)
                 # out:          (B, T, V)
                 # caches:       (n_layers, B, n_groups, T_max, d_head)
                 out, K_cache, V_cache = self.model(token_ids, T_max=T_max)
                 prefill = False
+            elif prefill and not cached:
+                out, K_cache, V_cache = self.model(token_ids, use_cache=False)
             else:
                 # Decode
                 # last token [B, 1, V] -> out, caches
