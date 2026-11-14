@@ -96,7 +96,7 @@ class ChatModel:
         #         condprobs[b, t] = logprobs[b, t, posterior_ids[b, t]]
         return token_logprobs
         
-    @torch.inference_mode()
+    @torch.no_grad()
     def generate(self, token_ids: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
         # token_ids to be shape [B, T]
         B, T = token_ids.shape

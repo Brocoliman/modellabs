@@ -64,7 +64,7 @@ class Runner:
             fin = finished.tolist()
             toks = tok_batch.squeeze(1).tolist()
             for i in range(num_samples):
-                if not fin[i]: outputs[i] += toks[i].tolist()
+                if not fin[i]: outputs[i].append(toks[i])
         
         outputs = [self.chatmodel.tokenizer.decode(output) for output in outputs]
         return outputs, finish_reason
