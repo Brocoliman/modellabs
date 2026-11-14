@@ -11,6 +11,7 @@ Long term foundational model playground to focus on developing and improving mod
 - Diffusion / Flow matching models
 - Local serving
 - Multiagent systems
+- GPU / kernel design
 
 ## Principles
 - Code is hand written
