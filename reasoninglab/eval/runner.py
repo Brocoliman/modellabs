@@ -24,13 +24,13 @@ class Runner:
         num_correct = 0
         start_time = time.perf_counter()
         with open(self.out_path, 'w') as f:
-            for i, (task_id, task) in enumerate(tqdm(self.tasks), start=1):
+            for i, task in enumerate(tqdm(self.tasks), start=1):
                 outputs, finish_reasons = self.samples(task, num_samples=self.config.consistency_k)
                 samples, final_answer, final_score, final_feedback = self.grade(task, outputs, finish_reasons)
                 num_correct += final_score
                 
                 record = {
-                    'task_id': str(task_id),
+                    'task_id': str(task.id),
                     'problem': task.query,
                     'correct_answer': task.answer,
                     'samples': samples,

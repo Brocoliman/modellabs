@@ -38,7 +38,7 @@ class Math500Manifest(TaskManifest):
     bench_name = 'math500'
     hf_path = 'HuggingFaceH4/MATH-500'
     hf_name = 'default'
-    splits = ('test',)
+    splits = ('test','train')  # train refers to the 12000 problems
     query_key = 'problem'
     answer_key = 'answer'
     
@@ -57,3 +57,8 @@ class Math500Manifest(TaskManifest):
 
     def extract_normalized_answer(self, output: str) -> str:
         return normalize_text(extract_final_candidate(output, fallback=None))
+    
+    def download(self) -> None:
+        if self.split == 'train':
+            raise ValueError ("download from the github directly at 'https://github.com/rasbt/math_full_minus_math500/blob/main/math_full_minus_math500.json'")
+        super().download(self.hf_path, self.hf_name, split=self.split).to_json(self.data_path)

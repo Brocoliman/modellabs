@@ -27,21 +27,33 @@ class TaskManifest:
     def __init__(self, split: str, template: str, ):
         if split not in self.splits: raise ValueError(...)
         self.split = split
-        self.data_path = self.data_dir / f'{self.bench_name}_{split}.jsonl'
-        self.tasks: dict[Hashable, Task] = dict()
+        data_path_jsonl = self.data_dir / f'{self.bench_name}_{split}.jsonl'
+        data_path_json = self.data_dir / f'{self.bench_name}_{split}.json'
+        if data_path_jsonl.exists():
+            self.data_path = data_path_jsonl
+        else:
+            self.data_path = data_path_json
+
+        self.tasks: list[Task] = list()
         self.template = template
         
     def load(self, *, indices: Iterable = None, download: bool = False):
         if not self.data_path.is_file() and download: self.download()
         with open(self.data_path) as f:
-            tasks_raw: list[dict] = [json.loads(line) for line in f if line.strip()]
-            if indices is None:
+            # Load based on if it is json or jsonl
+            if self.data_path.suffix == '.jsonl':
+                tasks_raw: list[dict] = [json.loads(line) for line in f if line.strip()]
+            else:  # .json
+                tasks_raw: list[dict] = json.load(f)
+                
+            # Create tasks
+            if indices is None:  # assign ids first, and gather from indices
                 pairs = list(enumerate(tasks_raw))
             else:
                 pairs = [(i, tasks_raw[i]) for i in indices]  # right now stores id as the index
             for id, task_raw in pairs:
                 task = Task(id=id, query=task_raw[self.query_key], answer=task_raw[self.answer_key], properties=task_raw)
-                self.tasks.update({task.id: task})
+                self.tasks.append(task)
     
     def chat_prompt(self, task) -> str:
         raise NotImplementedError
@@ -52,11 +64,11 @@ class TaskManifest:
     def extract_normalized_answer(self, output: str) -> str:
         raise NotImplementedError
     
-    def _get_task(self, task_id: Hashable):
-        return self.tasks[task_id]
+    def __getitem__(self, idx):
+        return self.tasks[idx]
     
     def __iter__(self):
-        return zip(self.tasks.keys(), self.tasks.values())
+        return iter(self.tasks)
     
     def __len__(self):
         return len(self.tasks)
