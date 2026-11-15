@@ -25,7 +25,15 @@ class Runner:
         start_time = time.perf_counter()
         with open(self.out_path, 'w') as f:
             for i, task in enumerate(tqdm(self.tasks), start=1):
-                outputs, finish_reasons = self.samples(task, num_samples=self.config.consistency_k)
+                prompt = self.tasks.chat_prompt(task)
+                input_ids = self.chatmodel.tokenizer.encode(prompt)
+                output_ids, lengths, finish_reasons = self.chatmodel.samples(input_ids, batches=self.config.consistency_k)
+                output_ids_list = [
+                    # Remove the last token (which is EOS) if it terminated
+                    output_ids[b, :lengths[b]-1 if finish_reasons[b] == 'FINISHED' else lengths[b]].tolist() 
+                    for b in range(self.config.consistency_k)
+                ]
+                outputs = [self.chatmodel.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
                 samples, final_answer, final_score, final_feedback = self.grade(task, outputs, finish_reasons)
                 num_correct += final_score
                 
@@ -45,29 +53,6 @@ class Runner:
                     tqdm.write(f"Progress: {i}/{num_tasks} |  Correct: {num_correct} | Elapsed: {elapsed:0.3f}")
         accuracy = num_correct/num_tasks*100
         print(f"Accuracy: {num_correct}/{num_tasks} = {accuracy:.1f}%")
-    
-    def samples(self, task, num_samples=1) -> tuple[list[str], list[str]]:
-        prompt = self.tasks.chat_prompt(task)
-        input_ids = self.chatmodel.tokenizer.encode(prompt)
-        
-        # [num_samples, T]
-        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(num_samples, 1).to(self.chatmodel.device)
-        outputs = [list() for _ in range(num_samples)]
-        gen_stream = self.chatmodel.generate(input_tensor)
-        while True:
-            try:
-                tok_batch, finished = next(gen_stream)
-            except StopIteration as e:
-                finish_reason = e.value
-                break
-            # convert to plain
-            fin = finished.tolist()
-            toks = tok_batch.squeeze(1).tolist()
-            for i in range(num_samples):
-                if not fin[i]: outputs[i].append(toks[i])
-        
-        outputs = [self.chatmodel.tokenizer.decode(output) for output in outputs]
-        return outputs, finish_reason
 
     def grade(self, task, outputs: list[str], finish_reasons: list[str]) -> tuple[list[dict], str, int, str]:
         num_samples = len(outputs)
@@ -89,11 +74,11 @@ class Runner:
         
         # Then grade each
         for sample in samples: 
-            score, feedback = self.tasks.grade(sample['extracted'], task)
+            score, feedback = self.tasks.grade_answer(sample['extracted'], task)
             sample['score'] = score
             sample['feedback'] = feedback
             
         # Regrade final answer: this also helps avoid selection bias if the grader is not deterministic
-        final_score, final_feedback = self.tasks.grade(final_answer, task)
+        final_score, final_feedback = self.tasks.grade_answer(final_answer, task)
         
         return samples, final_answer, final_score, final_feedback
