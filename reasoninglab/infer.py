@@ -18,7 +18,7 @@ class ChatModel:
     def __init__(self, spec, config):
         self.spec = ModelSpec(spec)
         self.config = InferenceConfig(config, spec)
-        self.device = self.config.device
+        self.device = torch.device(self.config.device)
         self.load()
     
     def load(self):
