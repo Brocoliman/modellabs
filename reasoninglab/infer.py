@@ -27,52 +27,15 @@ class ChatModel:
         self.model = Qwen3(self.spec)
         self.model.load_state_dict(hf_to_local_format(self.spec, self.config.root_dir), strict=True)
         self.model.to(self.device, dtype=self.spec.dtype)
-
-    ##### Downstream functions
-    
-    # list ids -> output ids, finish reasons
-    def samples(self, input_ids: list[int], batches=1, **config) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
-        eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
         
-        # (B, T_in)
-        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(batches, 1).to(self.device)
-        # (B, 0->T_out)
-        output_ids = torch.empty([batches, 0], dtype=torch.long, device=self.device)
-        
-        gen_stream = self.generate(input_tensor, **config)
-        while True:
-            try:
-                # (B, 1), (B, 1)
-                tok_batch, finished = next(gen_stream)
-            except StopIteration as e:
-                finish_reason = e.value
-                break
-            # Add to output_ids
-            output_ids = torch.cat([output_ids, tok_batch], dim=1)
-        
-        # Update lengths (B, )
-        is_eos = (output_ids == eos_token_id) # (B, T_out)
-        first_eos = is_eos.int().argmax(dim=1) # (B,)
-        lengths = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
-        
-        return output_ids, lengths, finish_reason
+    ##### Display functions (str in, str out)
     
     # str prompt -> str output
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
-        input_tensor = torch.tensor(input_ids).unsqueeze(0).to(self.device)  # [1, T]
-        output = list()
-        gen_stream = self.generate(input_tensor, **config)
-        while True:
-            try:
-                tok_batch, finished = next(gen_stream)
-                assert tok_batch.shape[0] == 1, "stream_stdout does not accept multi-sample"
-            except StopIteration as e:
-                finish_reason = e.value
-                break
-            output += tok_batch.squeeze(0).tolist()
-        output = self.tokenizer.decode(output)
-        return output, finish_reason
+        output_ids, length, finish_reason = self.samples(input_ids, batches=1, **config)
+        output = self.decode_samples(output_ids, length, finish_reason)[0]
+        return output, finish_reason[0]
 
     # str prompt -> stdout
     def stream_stdout(self, prompt: str, debug=True, **config):
@@ -100,12 +63,52 @@ class ChatModel:
                         f"Time elapsed: {elapsed}\n"
                         f"Tokens/s: {n/elapsed:02f}\n"
                         "====================\n"
-                         f"{output_stream}"
-                         if debug else output_stream
-                         )
+                            f"{output_stream}"
+                            if debug else output_stream
+                            )
                 )
                 n += 1
         Console().print(output_stream)
+
+    ##### Downstream functions
+    
+    # Main wrapper on top of ChatModel.generate
+    # input ids -> output ids, lengths, finish reasons
+    def samples(self, input_ids: list[int], batches=1, **config) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+        eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
+        
+        # (B, T_in)
+        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(batches, 1).to(self.device)
+        # (B, 0->T_out)
+        output_ids = torch.empty([batches, 0], dtype=torch.long, device=self.device)
+        
+        gen_stream = self.generate(input_tensor, **config)
+        while True:
+            try:
+                # (B, 1), (B, 1)
+                tok_batch, finished = next(gen_stream)
+            except StopIteration as e:
+                finish_reason = e.value
+                break
+            # Add to output_ids
+            output_ids = torch.cat([output_ids, tok_batch], dim=1)
+        
+        # Update lengths (B, )
+        is_eos = (output_ids == eos_token_id) # (B, T_out)
+        first_eos = is_eos.int().argmax(dim=1) # (B,)
+        lengths = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
+        
+        return output_ids, lengths, finish_reason
+
+    # Output of samples() -> list of str output
+    def decode_samples(self, output_ids: torch.Tensor, lengths: torch.Tensor, finish_reasons: list[str]) -> list[str]:
+        output_ids_list = [
+            # Remove the last token (which is EOS) if it terminated
+            output_ids[b, :lengths[b]-1 if finish_reasons[b] == 'FINISHED' else lengths[b]].tolist() 
+            for b in range(output_ids.shape[0])
+        ]
+        outputs = [self.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
+        return outputs
 
     ##### Helper functions
     
@@ -215,9 +218,4 @@ if __name__ == "__main__":
     
     import sys
     prompt = ' '.join(sys.argv[1:]) if len(sys.argv)>1 else "Explain large language models: "
-    chatmodel.stream_stdout(prompt)
-
-r"""
-uv run python -m reasoninglab.infer 'In quadrilateral $ABCD$, $\angle B$ is a right angle, diagonal $\overline{AC}$ is perpendicular to $\overline{CD}$, $AB=18$, $BC=21$, and $CD=14$. Find the perimeter of $ABCD$. The answer is '
-uv run reasoninglab/main.py 'We assume that $F$ is a field. Let $V$ be a vector space of finite-dimension over $F$ and let $S$ be a subset of $V$. We define the annihilator of $S$ by \[S^\circ = \{f\in V^*\ \vert \ S\subset \ker f\}~.\] Prove that $S^\circ$ is a subspace of $V^*$.'
-"""
+    print(chatmodel.generate_text2text(prompt))

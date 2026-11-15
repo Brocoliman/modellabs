@@ -28,12 +28,7 @@ class Runner:
                 prompt = self.tasks.chat_prompt(task)
                 input_ids = self.chatmodel.tokenizer.encode(prompt)
                 output_ids, lengths, finish_reasons = self.chatmodel.samples(input_ids, batches=self.config.consistency_k)
-                output_ids_list = [
-                    # Remove the last token (which is EOS) if it terminated
-                    output_ids[b, :lengths[b]-1 if finish_reasons[b] == 'FINISHED' else lengths[b]].tolist() 
-                    for b in range(self.config.consistency_k)
-                ]
-                outputs = [self.chatmodel.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
+                outputs = self.chatmodel.decode_samples(output_ids, lengths, finish_reasons)
                 samples, final_answer, final_score, final_feedback = self.grade(task, outputs, finish_reasons)
                 num_correct += final_score
                 
