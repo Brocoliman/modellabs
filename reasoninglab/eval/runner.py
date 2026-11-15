@@ -25,13 +25,17 @@ class Runner:
         start_time = time.perf_counter()
         with open(self.out_path, 'w') as f:
             for i, task in enumerate(tqdm(self.tasks), start=1):
+                # Encode prompt
                 prompt = self.tasks.chat_prompt(task)
                 input_ids = self.chatmodel.tokenizer.encode(prompt)
+                # Pass in prompt and get output
                 output_ids, lengths, finish_reasons = self.chatmodel.samples(input_ids, batches=self.config.consistency_k)
                 outputs = self.chatmodel.decode_samples(output_ids, lengths, finish_reasons)
+                # Grade output
                 samples, final_answer, final_score, final_feedback = self.grade(task, outputs, finish_reasons)
                 num_correct += final_score
                 
+                # Record results
                 record = {
                     'task_id': str(task.id),
                     'problem': task.query,

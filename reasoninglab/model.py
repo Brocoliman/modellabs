@@ -33,6 +33,7 @@ class Qwen3(nn.Module):
         self.register_buffer("rope_cos", torch.cos(angles), persistent=False)
         self.register_buffer("rope_sin", torch.sin(angles), persistent=False)
     
+    ##### Layer 0: architecture-level
     def forward(self, token_ids, *, use_cache: bool = True, T_max: int = None, T_cached: int = 0, K_cache = None, V_cache = None): # (B, T) -> (B, T)
         # Embed
         x = self.embedding(token_ids)  # (B, T, d_model)
