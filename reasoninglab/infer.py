@@ -73,7 +73,7 @@ class ChatModel:
     # str prompt -> str output
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
-        output = self.samples(input_ids, batches=1, **config).decode_all()[0]
+        output = self.samples(input_ids, batches=1, **config).decode_output()[0]
         return output
 
     # str prompt -> stdout
