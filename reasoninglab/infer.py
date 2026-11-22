@@ -15,28 +15,29 @@ from .weights import hf_to_local_format
 from ._vendor.tokenizer import Qwen3Tokenizer
 
 class SampleBatch:
-    def __init__(self, *, full_ids: torch.Tensor, T_in: int, lengths: torch.Tensor, finish_reasons: list[str],
+    def __init__(self, *, full_ids: torch.Tensor, T_in: torch.Tensor, T_out: torch.Tensor, finish_reasons: list[str],
                  chatmodel: ChatModel):
         self.full_ids = full_ids
-        self.T_in = T_in 
-        self.lengths = lengths
+        self.T_in = T_in
+        self.T_out = T_out
         self.finish_reasons = finish_reasons
         self.chatmodel = chatmodel
-    
-    def input_ids(self):
-        # Right now assumes all prompts are the same (one batch)
-        return self.full_ids[:, :self.T_in] 
-    
+        
+        # Batch
+        assert self.full_ids.shape[0] == self.T_in.shape[0] == self.T_out.shape[0] == len(finish_reasons)
+
     def output_ids(self):
         # Right now assumes all prompts are the same (one batch)
-        return self.full_ids[:, self.T_in:] 
+        assert (self.T_in[0] == self.T_in).all()
+        T_in = self.T_in[0]
+        return self.full_ids[:, T_in:] 
     
     # Output of samples() -> list of str output
     def decode(self) -> list[str]:
         output_ids = self.output_ids()
         output_ids_list = [
             # Remove the last token (which is EOS) if it terminated
-            output_ids[b, :self.lengths[b]-1 if self.finish_reasons[b] == 'FINISHED' else self.lengths[b]].tolist() 
+            output_ids[b, :self.T_out[b]-1 if self.finish_reasons[b] == 'FINISHED' else self.T_out[b]].tolist() 
             for b in range(output_ids.shape[0])
         ]
         outputs = [self.chatmodel.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
@@ -122,13 +123,16 @@ class ChatModel:
             # Add to output_ids
             output_ids = torch.cat([output_ids, tok_batch], dim=1)
         
-        # Update lengths (B, )
+        # Generate T_out (B, )
         is_eos = (output_ids == eos_token_id) # (B, T_out)
         first_eos = is_eos.int().argmax(dim=1) # (B,)
-        lengths = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
+        T_out = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
+        # Generate T_in (B, )
+        T_in = torch.full([batches], len(input_ids))
+        # Assemble full ids
         full_ids = torch.cat([input_tensor, output_ids], dim=1)
         
-        return SampleBatch(full_ids=full_ids, T_in=len(input_ids), lengths=lengths, finish_reasons=finish_reason, chatmodel=self)
+        return SampleBatch(full_ids=full_ids, T_in=T_in, T_out=T_out, finish_reasons=finish_reason, chatmodel=self)
 
     ##### Layer 1: tokprobability-level
     # Funcs operate on top of Layer 0 (directly calls self.model())
@@ -189,7 +193,6 @@ class ChatModel:
             finished = finished | (sampled_token_id == eos_token_id).squeeze(1)
             sampled_token_id = torch.where(finished.unsqueeze(1), eos_token_id, sampled_token_id)
             # (B, 1), (B, 1)
-            assert sampled_token_id.shape == (B, 1)
             yield sampled_token_id, finished.unsqueeze(1)
             
             # Update cache pointer
@@ -235,7 +238,6 @@ class ChatModel:
         sampled_token_id = torch.multinomial(probs_nucleus, num_samples=1)
         return sampled_token_id
         
-    
 
 if __name__ == "__main__":
     chatmodel = ChatModel(SPEC_QWEN06B, CONFIG_QWEN06_BASE)
