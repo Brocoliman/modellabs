@@ -21,26 +21,37 @@ class SampleBatch:
         self.T_in = T_in
         self.T_out = T_out
         self.finish_reasons = finish_reasons
-        self.chatmodel = chatmodel
+        self.tokenizer = chatmodel.tokenizer
         
-        # Batch
+        # Ensure inputs have same batch size
         assert self.full_ids.shape[0] == self.T_in.shape[0] == self.T_out.shape[0] == len(finish_reasons)
-
-    def output_ids(self):
+        
+        # Extract output_ids
         # Right now assumes all prompts are the same (one batch)
         assert (self.T_in[0] == self.T_in).all()
-        T_in = self.T_in[0]
-        return self.full_ids[:, T_in:] 
+        self.output_ids = self.full_ids[:, self.T_in[0]:] 
+        
+        # Response mask - only tag output tokens including EOS: tokens[T_in[b]-1:T_in[b]-1+T_out[b]]
+        B, T = self.full_ids.shape
+        self.response_mask = torch.zeros([B, T-1], device=self.full_ids.device)  # (B, T-1)
+        t_idx = torch.arange(T-1, device=self.full_ids.device)[None, :]  # (1, T)
+        starts = (T_in - 1)[:, None]  # (B, 1)
+        ends = (T_in - 1 + T_out)[:, None]  # (B, 1)
+        self.response_mask[(t_idx >= starts) & (t_idx < ends)] = 1
     
-    # Output of samples() -> list of str output
-    def decode(self) -> list[str]:
-        output_ids = self.output_ids()
+    def decode_all(self) -> list[str]:
+        return self._decode(self.full_ids, self.T_out+self.T_in)
+
+    def decode_output(self) -> list[str]:
+        return self._decode(self.output_ids, self.T_out)
+        
+    def _decode(self, output_ids: torch.Tensor, end_idx: torch.Tensor) -> list[str]:
         output_ids_list = [
             # Remove the last token (which is EOS) if it terminated
-            output_ids[b, :self.T_out[b]-1 if self.finish_reasons[b] == 'FINISHED' else self.T_out[b]].tolist() 
+            output_ids[b, :end_idx[b]-1 if self.finish_reasons[b] == 'FINISHED' else end_idx[b]].tolist() 
             for b in range(output_ids.shape[0])
         ]
-        outputs = [self.chatmodel.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
+        outputs = [self.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
         return outputs
 
 class ChatModel:
@@ -62,7 +73,7 @@ class ChatModel:
     # str prompt -> str output
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
-        output = self.samples(input_ids, batches=1, **config).decode()
+        output = self.samples(input_ids, batches=1, **config).decode_all()[0]
         return output
 
     # str prompt -> stdout
@@ -128,7 +139,7 @@ class ChatModel:
         first_eos = is_eos.int().argmax(dim=1) # (B,)
         T_out = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
         # Generate T_in (B, )
-        T_in = torch.full([batches], len(input_ids))
+        T_in = torch.full([batches], len(input_ids), device=self.device)
         # Assemble full ids
         full_ids = torch.cat([input_tensor, output_ids], dim=1)
         
