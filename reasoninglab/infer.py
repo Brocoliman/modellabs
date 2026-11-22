@@ -1,3 +1,4 @@
+from __future__ import annotations
 import torch
 import torch.nn as nn
 
@@ -13,6 +14,33 @@ from .weights import hf_to_local_format
 
 from ._vendor.tokenizer import Qwen3Tokenizer
 
+class SampleBatch:
+    def __init__(self, *, full_ids: torch.Tensor, T_in: int, lengths: torch.Tensor, finish_reasons: list[str],
+                 chatmodel: ChatModel):
+        self.full_ids = full_ids
+        self.T_in = T_in 
+        self.lengths = lengths
+        self.finish_reasons = finish_reasons
+        self.chatmodel = chatmodel
+    
+    def input_ids(self):
+        # Right now assumes all prompts are the same (one batch)
+        return self.full_ids[:, :self.T_in] 
+    
+    def output_ids(self):
+        # Right now assumes all prompts are the same (one batch)
+        return self.full_ids[:, self.T_in:] 
+    
+    # Output of samples() -> list of str output
+    def decode(self) -> list[str]:
+        output_ids = self.output_ids()
+        output_ids_list = [
+            # Remove the last token (which is EOS) if it terminated
+            output_ids[b, :self.lengths[b]-1 if self.finish_reasons[b] == 'FINISHED' else self.lengths[b]].tolist() 
+            for b in range(output_ids.shape[0])
+        ]
+        outputs = [self.chatmodel.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
+        return outputs
 
 class ChatModel:
     def __init__(self, spec, config):
@@ -33,9 +61,8 @@ class ChatModel:
     # str prompt -> str output
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
-        output_ids, length, finish_reason = self.samples(input_ids, batches=1, **config)
-        output = self.decode_samples(output_ids, length, finish_reason)[0]
-        return output, finish_reason[0]
+        output = self.samples(input_ids, batches=1, **config).decode()
+        return output
 
     # str prompt -> stdout
     def stream_stdout(self, prompt: str, debug=True, **config):
@@ -76,7 +103,7 @@ class ChatModel:
     
     # Main wrapper on top of ChatModel.generate
     # input ids -> output ids, lengths, finish reasons
-    def samples(self, input_ids: list[int], batches=1, **config) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+    def samples(self, input_ids: list[int], batches=1, **config) -> SampleBatch:
         eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
         
         # (B, T_in)
@@ -99,18 +126,9 @@ class ChatModel:
         is_eos = (output_ids == eos_token_id) # (B, T_out)
         first_eos = is_eos.int().argmax(dim=1) # (B,)
         lengths = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
+        full_ids = torch.cat([input_tensor, output_ids], dim=1)
         
-        return output_ids, lengths, finish_reason
-
-    # Output of samples() -> list of str output
-    def decode_samples(self, output_ids: torch.Tensor, lengths: torch.Tensor, finish_reasons: list[str]) -> list[str]:
-        output_ids_list = [
-            # Remove the last token (which is EOS) if it terminated
-            output_ids[b, :lengths[b]-1 if finish_reasons[b] == 'FINISHED' else lengths[b]].tolist() 
-            for b in range(output_ids.shape[0])
-        ]
-        outputs = [self.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
-        return outputs
+        return SampleBatch(full_ids=full_ids, T_in=len(input_ids), lengths=lengths, finish_reasons=finish_reason, chatmodel=self)
 
     ##### Layer 1: tokprobability-level
     # Funcs operate on top of Layer 0 (directly calls self.model())
@@ -186,7 +204,7 @@ class ChatModel:
     
     # token ids -> conditional probability of next token
     # (B, T) -> (B, T-1)
-    def _logprobs(self, token_ids: torch.Tensor) -> torch.Tensor:
+    def logprobs(self, token_ids: torch.Tensor) -> torch.Tensor:
         logits, _, _ = self.model(token_ids, use_cache=False)  # (B, T, V)
         logprobs = torch.log_softmax(logits.float(), dim=-1)[:, :-1]  # (B, T-1, V); need fp32
         posterior_ids = token_ids[:, 1:]  # (B, T-1)

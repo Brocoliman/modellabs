@@ -29,10 +29,10 @@ class Runner:
                 prompt = self.tasks.chat_prompt(task)
                 input_ids = self.chatmodel.tokenizer.encode(prompt)
                 # Pass in prompt and get output
-                output_ids, lengths, finish_reasons = self.chatmodel.samples(input_ids, batches=self.config.consistency_k)
-                outputs = self.chatmodel.decode_samples(output_ids, lengths, finish_reasons)
+                output_sample = self.chatmodel.samples(input_ids, batches=self.config.consistency_k)
+                outputs = output_sample.decode()
                 # Grade output
-                samples, final_answer, final_score, final_feedback = self.grade(task, outputs, finish_reasons)
+                samples, final_answer, final_score, final_feedback = self.grade(task, outputs, output_sample.finish_reasons)
                 num_correct += final_score
                 
                 # Record results
