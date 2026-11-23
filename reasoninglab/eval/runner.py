@@ -27,7 +27,7 @@ class Runner:
             for i, task in enumerate(tqdm(self.tasks), start=1):
                 # Encode prompt
                 prompt = self.tasks.chat_prompt(task)
-                input_ids = self.chatmodel.tokenizer.encode(prompt)
+                input_ids = [self.chatmodel.tokenizer.encode(prompt)]
                 # Pass in prompt and get output
                 output_sample = self.chatmodel.samples(input_ids, repeats=self.config.consistency_k)
                 outputs = output_sample.decode_output()

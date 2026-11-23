@@ -40,6 +40,9 @@ class SampleBatch:
             B = prompts * repeats
         T: int
             T = T_left + T_right, where T_right includes total output and EOS length
+        T_pad: (B, )
+            number of padding tokens per row
+            satisfies T_pad + T_in = T_left
         output_ids: (B, T_right)
             Includes all EOS
         response_mask: (B, T-1)
@@ -62,6 +65,9 @@ class SampleBatch:
         assert self.full_ids.shape[0] == self.T_in.shape[0] == self.T_out.shape[0] == len(finish_reasons), "Inputs do not have same batch size"
         assert self.B % self.repeats == 0, "(B = prompts * repeats) cannot be satisfied"
         self.prompts = self.B // self.repeats
+        
+        # Explicit padding data
+        self.T_pad = self.T_left - self.T_in
         
         # Extract output_ids
         self.output_ids = self.full_ids[:, self.T_left:] 
@@ -106,7 +112,7 @@ class ChatModel:
     # str prompt -> str output
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
-        output = self.samples(input_ids, repeats=1, **config).decode_output()[0]
+        output = self.samples([input_ids], **config).decode_output()[0]
         return output
 
     # str prompt -> stdout
@@ -148,17 +154,44 @@ class ChatModel:
     
     # Main wrapper on top of ChatModel.generate
     # input ids -> output ids, lengths, finish reasons
-    def samples(self, input_ids: list[int], repeats=1, **config) -> SampleBatch:
+    def samples(self, input_ids: list[list[int]], repeats=1, **config) -> SampleBatch:
+        """Handles batch inputs that have duplicates
+
+        Args:
+            input_ids: list[list[int]]
+                list of input rows, with each element being an id
+                this should only contain distinct prompts
+                assumed to be ragged
+            repeats: int
+                how many times each prompt is to be repeated
+                repeated generation is handled by the function
+
+        Returns:
+            SampleBatch: 
+                Contains input and output ids, padding alignment data, finish reasons, etc.
+        """
         eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
         
-        # (B, T_in)
-        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(repeats, 1).to(self.device)
-        # (B, 0->T_out)
-        output_ids = torch.empty([repeats, 0], dtype=torch.long, device=self.device)
+        # Left-pad input_ids -> get input_tensor
+        # In the process, create T_left, T_pad, T_in
+        T_left = max([len(row) for row in input_ids])
+        B = len(input_ids) * repeats
+        T_pad = torch.tensor([T_left-len(row) for row in input_ids], dtype=torch.long, device=self.device)  # (prompts, )
+        input_tensor = torch.cat(  # input_ids (prompts, T_in) -> input_tensor (prompts, T_left)
+            [torch.cat(
+                [torch.full([1, T_left-len(row)], eos_token_id), torch.tensor(row).unsqueeze(0)], dim=1
+                ) for row in input_ids], dim=0).to(self.device)
+        T_in = torch.tensor([len(row) for row in input_ids], dtype=torch.long, device=self.device)  # (prompts, )
         
-        # (B, )
-        T_pad = torch.zeros([repeats], dtype=torch.long, device=self.device)
+        # Repeat along batch dimension
+        input_tensor = input_tensor.repeat_interleave(repeats, dim=0)  # (prompts, T_left) -> (prompts*repeats, T_left)
+        T_pad = T_pad.repeat_interleave(repeats, dim=0)  # (prompts, ) -> (B, )
+        T_in = T_in.repeat_interleave(repeats, dim=0)  # (prompts, ) -> (B, )
         
+        # Set up output 
+        output_ids = torch.empty([B, 0], dtype=torch.long, device=self.device)  # (B, 0->T_out)
+        
+        # Generation loop
         gen_stream = self.generate(input_tensor, T_pad, **config)
         while True:
             try:
@@ -174,12 +207,10 @@ class ChatModel:
         is_eos = (output_ids == eos_token_id) # (B, T_out)
         first_eos = is_eos.int().argmax(dim=1) # (B,)
         T_out = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
-        # Generate T_in (B, )
-        T_in = torch.full([repeats], len(input_ids), device=self.device)
         # Assemble full ids
         full_ids = torch.cat([input_tensor, output_ids], dim=1)
         
-        return SampleBatch(full_ids=full_ids, T_in=T_in, T_out=T_out, T_left=..., repeats=repeats, finish_reasons=finish_reason, tokenizer=self.tokenizer)
+        return SampleBatch(full_ids=full_ids, T_in=T_in, T_out=T_out, T_left=T_left, repeats=repeats, finish_reasons=finish_reason, tokenizer=self.tokenizer)
 
     ##### Layer 1: tokprobability-level
     # Funcs operate on top of Layer 0 (directly calls self.model())
@@ -206,6 +237,7 @@ class ChatModel:
             finished: (B, 1) x T_out
                 whether this row is finished; is True on the instant EOS is generated
         """
+
         # token_ids to be shape [B, T]
         B, T = token_ids.shape
         finished = torch.zeros((B,), dtype=torch.bool, device=token_ids.device)
@@ -275,8 +307,8 @@ class ChatModel:
     
     # token ids -> conditional probability of next token
     # (B, T) -> (B, T-1)
-    def logprobs(self, token_ids: torch.Tensor) -> torch.Tensor:
-        logits, _, _ = self.model(token_ids, use_cache=False)  # (B, T, V)
+    def logprobs(self, token_ids: torch.Tensor, T_pad: torch.Tensor) -> torch.Tensor:
+        logits, _, _ = self.model(token_ids, T_pad=T_pad, use_cache=False)  # (B, T, V)
         logprobs = torch.log_softmax(logits.float(), dim=-1)[:, :-1]  # (B, T-1, V); need fp32
         posterior_ids = token_ids[:, 1:]  # (B, T-1)
         
