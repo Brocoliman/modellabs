@@ -170,19 +170,6 @@ class GQA(nn.Module):
             K_cache[:, :, T_cached:T_cached+T] = K
             V_cache[:, :, T_cached:T_cached+T] = V
         
-        # # Copy over via repeat_interleave (Replaced by enable_gqa=True)
-        # # In Qwen's format, (H1,H2,H3,H4) wants (K1,K1,K2,K2) or contiguous groups along the heads
-        # # K,V -> (B, n_heads, T+T_cached, d_head)
-        # K_full = K.repeat_interleave(self.group_size, dim=1)
-        # V_full = V.repeat_interleave(self.group_size, dim=1)
-        
-        # # Calc (Replaced by flashattention below)
-        # # K -> (B, n_heads, d_head, T+T_cache)
-        # K_T = K_full.permute(0, 1, 3, 2)
-        # A = (Q @ K_T) / (self.config.d_head ** 0.5)  # (B, n_heads, T, T+T_cache)
-        # A = A.masked_fill(mask, float('-inf')) # set all noncausal attention pairs to none
-        # A = torch.softmax(A, dim=3) @ V_full  # (B, n_heads, T+T_cache, d_head)
-        
         # Attention
         # (B, n_heads, T_max, d_head)
         if use_cache:
