@@ -15,41 +15,74 @@ from .weights import hf_to_local_format
 from ._vendor.tokenizer import Qwen3Tokenizer
 
 class SampleBatch:
-    def __init__(self, *, full_ids: torch.Tensor, T_in: torch.Tensor, T_out: torch.Tensor, finish_reasons: list[str],
-                 chatmodel: ChatModel):
+    """Handle model output
+    
+    Requires:
+        full_ids: (B, T)
+            batch of token id stream, including padding, input tokens, and output tokens
+            stored prompt-major
+        T_in: (B, )
+            non-padded (EOS) input length per row
+        T_out: (B, )
+            non-EOS output length per row
+        T_left: int
+            total padding and input length, which is fixed every row and equal to max T_in
+        repeats: int
+            group size of prompts; how many times each prompt is repeated in the batch
+        finish_reasons: (B, ) list[str]
+            either indicates proper termination or run out of tokens per row
+        tokenizer: Qwen3Tokenizer
+    
+    Generates:
+        prompts: int
+            how many distinct prompts exist within the batch pool
+        B: int
+            B = prompts * repeats
+        T: int
+            T = T_left + T_right, where T_right includes total output and EOS length
+        output_ids: (B, T_right)
+            Includes all EOS
+        response_mask: (B, T-1)
+            Only includes output tokens, including the first EOS
+            entry t represents the inclusion/exclusion of token t+1
+        
+    """
+    def __init__(self, *, full_ids: torch.Tensor, T_in: torch.Tensor, T_out: torch.Tensor, T_left: int,
+                 repeats: int, finish_reasons: list[str], tokenizer: Qwen3Tokenizer):
         self.full_ids = full_ids
         self.T_in = T_in
         self.T_out = T_out
+        self.T_left = T_left
         self.finish_reasons = finish_reasons
-        self.tokenizer = chatmodel.tokenizer
+        self.tokenizer = tokenizer
+        self.repeats = repeats
         
-        # Ensure inputs have same batch size
-        assert self.full_ids.shape[0] == self.T_in.shape[0] == self.T_out.shape[0] == len(finish_reasons)
+        # Batch sizes
+        self.B, self.T = self.full_ids.shape
+        assert self.full_ids.shape[0] == self.T_in.shape[0] == self.T_out.shape[0] == len(finish_reasons), "Inputs do not have same batch size"
+        assert self.B % self.repeats == 0, "(B = prompts * repeats) cannot be satisfied"
+        self.prompts = self.B // self.repeats
         
         # Extract output_ids
-        # Right now assumes all prompts are the same (one batch)
-        assert (self.T_in[0] == self.T_in).all()
-        self.output_ids = self.full_ids[:, self.T_in[0]:] 
+        self.output_ids = self.full_ids[:, self.T_left:] 
         
-        # Response mask - only tag output tokens including EOS: tokens[T_in[b]-1:T_in[b]-1+T_out[b]]
-        B, T = self.full_ids.shape
-        self.response_mask = torch.zeros([B, T-1], device=self.full_ids.device)  # (B, T-1)
-        t_idx = torch.arange(T-1, device=self.full_ids.device)[None, :]  # (1, T)
-        starts = (T_in - 1)[:, None]  # (B, 1)
-        ends = (T_in - 1 + T_out)[:, None]  # (B, 1)
-        self.response_mask[(t_idx >= starts) & (t_idx < ends)] = 1
+        # Response mask - only tag output tokens including EOS
+        self.response_mask = torch.zeros([self.B, self.T-1], device=self.full_ids.device)  # (B, T-1)
+        t_idx = torch.arange(self.T-1, device=self.full_ids.device)[None, :]  # (1, T)
+        ends = (T_left - 1 + T_out)[:, None]  # (B, 1)
+        self.response_mask[(t_idx >= T_left-1) & (t_idx < ends)] = 1
     
     def decode_all(self) -> list[str]:
-        return self._decode(self.full_ids, self.T_out+self.T_in)
+        return self._decode(self.full_ids, self.T_left - self.T_in, self.T_left + self.T_out)
 
     def decode_output(self) -> list[str]:
-        return self._decode(self.output_ids, self.T_out)
+        return self._decode(self.full_ids, torch.full([self.B], self.T_left, device=self.full_ids.device), self.T_left + self.T_out)
         
-    def _decode(self, output_ids: torch.Tensor, end_idx: torch.Tensor) -> list[str]:
+    def _decode(self, ids: torch.Tensor, start_idx: torch.Tensor, end_idx: torch.Tensor) -> list[str]:
         output_ids_list = [
             # Remove the last token (which is EOS) if it terminated
-            output_ids[b, :end_idx[b]-1 if self.finish_reasons[b] == 'FINISHED' else end_idx[b]].tolist() 
-            for b in range(output_ids.shape[0])
+            ids[b, start_idx[b]:end_idx[b]-1 if self.finish_reasons[b] == 'FINISHED' else end_idx[b]].tolist() 
+            for b in range(ids.shape[0])
         ]
         outputs = [self.tokenizer.decode(output_row) for output_row in output_ids_list]  # Recall that output_ids is a list and each row is a full sample output
         return outputs
@@ -73,7 +106,7 @@ class ChatModel:
     # str prompt -> str output
     def generate_text2text(self, prompt: str, **config) -> str:
         input_ids = self.tokenizer.encode(prompt)
-        output = self.samples(input_ids, batches=1, **config).decode_output()[0]
+        output = self.samples(input_ids, repeats=1, **config).decode_output()[0]
         return output
 
     # str prompt -> stdout
@@ -115,16 +148,16 @@ class ChatModel:
     
     # Main wrapper on top of ChatModel.generate
     # input ids -> output ids, lengths, finish reasons
-    def samples(self, input_ids: list[int], batches=1, **config) -> SampleBatch:
+    def samples(self, input_ids: list[int], repeats=1, **config) -> SampleBatch:
         eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
         
         # (B, T_in)
-        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(batches, 1).to(self.device)
+        input_tensor = torch.tensor(input_ids).unsqueeze(0).repeat(repeats, 1).to(self.device)
         # (B, 0->T_out)
-        output_ids = torch.empty([batches, 0], dtype=torch.long, device=self.device)
+        output_ids = torch.empty([repeats, 0], dtype=torch.long, device=self.device)
         
         # (B, )
-        T_pad = torch.zeros([batches], dtype=torch.long, device=self.device)
+        T_pad = torch.zeros([repeats], dtype=torch.long, device=self.device)
         
         gen_stream = self.generate(input_tensor, T_pad, **config)
         while True:
@@ -142,11 +175,11 @@ class ChatModel:
         first_eos = is_eos.int().argmax(dim=1) # (B,)
         T_out = torch.where(is_eos.any(dim=1), first_eos + 1, output_ids.shape[1])  # include first EOS
         # Generate T_in (B, )
-        T_in = torch.full([batches], len(input_ids), device=self.device)
+        T_in = torch.full([repeats], len(input_ids), device=self.device)
         # Assemble full ids
         full_ids = torch.cat([input_tensor, output_ids], dim=1)
         
-        return SampleBatch(full_ids=full_ids, T_in=T_in, T_out=T_out, finish_reasons=finish_reason, chatmodel=self)
+        return SampleBatch(full_ids=full_ids, T_in=T_in, T_out=T_out, T_left=..., repeats=repeats, finish_reasons=finish_reason, tokenizer=self.tokenizer)
 
     ##### Layer 1: tokprobability-level
     # Funcs operate on top of Layer 0 (directly calls self.model())
