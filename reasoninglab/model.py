@@ -34,28 +34,28 @@ class Qwen3(nn.Module):
         self.register_buffer("rope_sin", torch.sin(angles), persistent=False)
     
     ##### Layer 0: architecture-level
-    """Forward propagation of Qwen3 architecture
-        
-    Requires:
-        token_ids: (B, T)
-            batch of token id stream, including padding
-        use_cache: 
-            whether to use the KV cache; if yes, the K_cache and V_cache will be created and maintained
-        T_pad: (B, ) long
-            number of left pad tokens on row b
-        T_max: int
-            more specifically, T_out_max; used for allocating fixed size cache
-        T_cached: int
-            how many tokens are in the KV cache right now; used as right pointer for KV cache slice
-        K/V_cache: (n_layers, B, n_groups, T_max, d_head)
-            the cache is updated in place by GQA.forward(), new K/V are added onto [:, :, token indices, embeddings] 
-
-    Returns:
-        logits: (B, T, V)
-        K/V_cache: (n_layers, B, n_groups, T_max, d_head)
-            updated in place with new K/V
-    """
     def forward(self, token_ids, *, use_cache: bool = True, T_pad = None, T_max: int = None, T_cached: int = 0, K_cache = None, V_cache = None): # (B, T) -> (B, T)
+        """Forward propagation of Qwen3 architecture
+                
+        Requires:
+            token_ids: (B, T)
+                batch of token id stream, including padding
+            use_cache: 
+                whether to use the KV cache; if yes, the K_cache and V_cache will be created and maintained
+            T_pad: (B, ) long
+                number of left pad tokens on row b
+            T_max: int
+                more specifically, T_out_max; used for allocating fixed size cache
+            T_cached: int
+                how many tokens are in the KV cache right now; used as right pointer for KV cache slice
+            K/V_cache: (n_layers, B, n_groups, T_max, d_head)
+                the cache is updated in place by GQA.forward(), new K/V are added onto [:, :, token indices, embeddings] 
+    
+        Returns:
+            logits: (B, T, V)
+            K/V_cache: (n_layers, B, n_groups, T_max, d_head)
+                updated in place with new K/V
+        """
         # Embed
         x = self.embedding(token_ids)  # (B, T, d_model)
         B, T, _ = x.shape
@@ -134,11 +134,23 @@ class GQA(nn.Module):
         self.qnorm = nn.RMSNorm(self.d_head, eps=1e-6)
         self.knorm = nn.RMSNorm(self.d_head, eps=1e-6)
     
-    def _rotate(self, x, *, rope_sin, rope_cos, offset=0):  # (B, n_heads, T, d_head)
-        T = x.shape[2]
+    def _rotate(self, x, *, rope_sin, rope_cos, pos):  # (B, n_heads, T, d_head)
+        """Apply RoPE
+                    
+        Requires:
+            x: (B, n_heads, T, d_head)
+                the query or key in question
+            rope_sin/rope_cos: (tokens, d_head)
+            pos: (B, T)
+                pos[b, t] = T_cached + t - T_pad[b] is the position used for token (b, t)
+    
+        Returns:
+            out: (B, n_heads, T, d_head)
+                like x
+        """
         x1, x2 = x[..., :self.d_head//2], x[..., self.d_head//2:]
         x90 = torch.cat([-x2, x1], dim=-1)
-        out = x * rope_cos[offset : offset + T] + x90 * rope_sin[offset : offset + T]
+        out = x * rope_cos[pos].unsqueeze(1) + x90 * rope_sin[pos].unsqueeze(1)
         return out
         
     def forward(self, x, *, rope_cos, rope_sin, mask, T_pad, T_cached: int = 0, K_cache=None, V_cache=None):  # (B, T, d_model) -> (B, T, d_model)
@@ -159,8 +171,11 @@ class GQA(nn.Module):
         K = self.knorm(K)
         
         # RoPE
-        Q = self._rotate(Q, rope_cos=rope_cos, rope_sin=rope_sin, offset=T_cached)
-        K = self._rotate(K, rope_cos=rope_cos, rope_sin=rope_sin, offset=T_cached)
+        t_idx = torch.arange(T, dtype=torch.long, device=x.device)[None, :]  # (1, T)
+        paddings = (T_cached-T_pad).unsqueeze(1)  # (B, 1)
+        pos = t_idx + paddings
+        Q = self._rotate(Q, rope_cos=rope_cos, rope_sin=rope_sin, pos=pos)
+        K = self._rotate(K, rope_cos=rope_cos, rope_sin=rope_sin, pos=pos)
         
         # Cache
         # (B, n_groups, T_max, d_head)

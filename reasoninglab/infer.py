@@ -153,26 +153,26 @@ class ChatModel:
     # Cares about the next token's probability distribution
     
     # (B, T) -> T_resp x [(B, 1), (B, 1)], B
-    """Manages inference, token-level decoding, cache handling, batching, exit
-    
-    Requires:
-        token_ids: (B, T)
-            batch of token id stream, including padding
-        T_pad: (B, ) long
-            number of left pad tokens on row b
-
-    Returns:
-        finish_reasons: (B, ) list[str]
-            either indicates proper termination or run out of tokens per row
-
-    Yields:
-        sample_token_id: (B, 1) x T_out
-            id of next token
-        finished: (B, 1) x T_out
-            whether this row is finished; is True on the instant EOS is generated
-    """
     @torch.no_grad()
     def generate(self, token_ids: torch.Tensor, T_pad: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
+        """Manages inference, token-level decoding, cache handling, batching, exit
+            
+        Requires:
+            token_ids: (B, T)
+                batch of token id stream, including padding
+            T_pad: (B, ) long
+                number of left pad tokens on row b
+    
+        Returns:
+            finish_reasons: (B, ) list[str]
+                either indicates proper termination or run out of tokens per row
+    
+        Yields:
+            sample_token_id: (B, 1) x T_out
+                id of next token
+            finished: (B, 1) x T_out
+                whether this row is finished; is True on the instant EOS is generated
+        """
         # token_ids to be shape [B, T]
         B, T = token_ids.shape
         finished = torch.zeros((B,), dtype=torch.bool, device=token_ids.device)
