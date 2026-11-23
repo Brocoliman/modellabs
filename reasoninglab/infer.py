@@ -123,7 +123,10 @@ class ChatModel:
         # (B, 0->T_out)
         output_ids = torch.empty([batches, 0], dtype=torch.long, device=self.device)
         
-        gen_stream = self.generate(input_tensor, **config)
+        # (B, )
+        T_pad = torch.zeros([batches], dtype=torch.long, device=self.device)
+        
+        gen_stream = self.generate(input_tensor, T_pad, **config)
         while True:
             try:
                 # (B, 1), (B, 1)
@@ -149,10 +152,27 @@ class ChatModel:
     # Funcs operate on top of Layer 0 (directly calls self.model())
     # Cares about the next token's probability distribution
     
-    # Base function for inference, handling caching, batches, exit
     # (B, T) -> T_resp x [(B, 1), (B, 1)], B
+    """Manages inference, token-level decoding, cache handling, batching, exit
+    
+    Requires:
+        token_ids: (B, T)
+            batch of token id stream, including padding
+        T_pad: (B, ) long
+            number of left pad tokens on row b
+
+    Returns:
+        finish_reasons: (B, ) list[str]
+            either indicates proper termination or run out of tokens per row
+
+    Yields:
+        sample_token_id: (B, 1) x T_out
+            id of next token
+        finished: (B, 1) x T_out
+            whether this row is finished; is True on the instant EOS is generated
+    """
     @torch.no_grad()
-    def generate(self, token_ids: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
+    def generate(self, token_ids: torch.Tensor, T_pad: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
         # token_ids to be shape [B, T]
         B, T = token_ids.shape
         finished = torch.zeros((B,), dtype=torch.bool, device=token_ids.device)
@@ -169,20 +189,24 @@ class ChatModel:
         prefill = True
         for step in range(max_new_tokens):
             # Forward prog
-            if prefill and cached:
-                # Prefill
+            
+            # cache off
+            if prefill and not cached:
+                out, K_cache, V_cache = self.model(token_ids, use_cache=False, T_pad=T_pad)
+            
+            # cache on, prefill
+            elif prefill and cached:  
                 # token_ids:    (B, T, V)
                 # out:          (B, T, V)
                 # caches:       (n_layers, B, n_groups, T_max, d_head)
-                out, K_cache, V_cache = self.model(token_ids, T_max=T_max)
+                out, K_cache, V_cache = self.model(token_ids, T_max=T_max, T_pad=T_pad)
                 prefill = False
-            elif prefill and not cached:
-                out, K_cache, V_cache = self.model(token_ids, use_cache=False)
+            
+            # cache on, decode
             else:
-                # Decode
                 # last token [B, 1, V] -> out, caches
                 out, K_cache, V_cache = self.model(token_ids[:,-1:], 
-                    T_max=T_max, T_cached=T_cached, K_cache=K_cache, V_cache=V_cache)  
+                    T_max=T_max, T_cached=T_cached, K_cache=K_cache, V_cache=V_cache, T_pad=T_pad)  
             
             # Sample
             # sampled_token_id: (B, 1)

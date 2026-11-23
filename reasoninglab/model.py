@@ -34,44 +34,57 @@ class Qwen3(nn.Module):
         self.register_buffer("rope_sin", torch.sin(angles), persistent=False)
     
     ##### Layer 0: architecture-level
-    def forward(self, token_ids, *, use_cache: bool = True, T_max: int = None, T_cached: int = 0, K_cache = None, V_cache = None): # (B, T) -> (B, T)
+    """Forward propagation of Qwen3 architecture
+        
+    Requires:
+        token_ids: (B, T)
+            batch of token id stream, including padding
+        use_cache: 
+            whether to use the KV cache; if yes, the K_cache and V_cache will be created and maintained
+        T_pad: (B, ) long
+            number of left pad tokens on row b
+        T_max: int
+            more specifically, T_out_max; used for allocating fixed size cache
+        T_cached: int
+            how many tokens are in the KV cache right now; used as right pointer for KV cache slice
+        K/V_cache: (n_layers, B, n_groups, T_max, d_head)
+            the cache is updated in place by GQA.forward(), new K/V are added onto [:, :, token indices, embeddings] 
+
+    Returns:
+        logits: (B, T, V)
+        K/V_cache: (n_layers, B, n_groups, T_max, d_head)
+            updated in place with new K/V
+    """
+    def forward(self, token_ids, *, use_cache: bool = True, T_pad = None, T_max: int = None, T_cached: int = 0, K_cache = None, V_cache = None): # (B, T) -> (B, T)
         # Embed
         x = self.embedding(token_ids)  # (B, T, d_model)
         B, T, _ = x.shape
-        
-        """
-        T=2, T_cached=3
-        tri: 2x2
-         10
-         11
-        fill: 2x3
-         111
-         111
-        mask: 2x5
-         11110
-         11111
-        """
         
         # Need updated cache; if not use cache, then keep it passed as None
         # (n_layers, B, n_groups, T_max, d_head)
         if K_cache is None and use_cache: K_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
         if V_cache is None and use_cache: V_cache = torch.empty([self.n_layers, B, self.n_groups, T_max,self.d_head], dtype=self.spec.dtype, device=x.device)
         
-        if use_cache:
-            # Generate mask
-            # lower including diagonal; the ones to KEEP
-            tri = torch.ones([T, T], dtype=torch.bool, device=x.device).tril()
-            fill = torch.ones([T,T_cached], dtype=torch.bool, device=x.device)
-            mask = torch.cat([fill, tri], dim=1)
+        # Generate mask of (B, 1, T, T_cached+T)
+        # For explanation, please see /reasoninglab/learning_demos/masks.ipynb 
+        # mask here is 'may attend'
+        T_pad = torch.zeros([B], dtype=torch.long, device=x.device) if T_pad is None else T_pad
+        tri = torch.ones([B, 1, T, T], dtype=torch.bool, device=x.device).tril() # lower triangular region
+        fill = torch.ones([B, 1, T, T_cached], dtype=torch.bool, device=x.device) # rectangular region
+        mask = torch.cat([fill, tri], dim=-1)
+        t_idx = torch.arange(T_cached+T, device=x.device).unsqueeze(0).repeat(T, 1)[None, None, :]  # (1, 1, T, T_cached+T)
+        padding_ends = T_pad[:, None, None, None]  # (B, 1, 1, 1)
+        mask[t_idx < padding_ends] = 0  # set first T_pad[b] columns to 0
+        mask.diagonal(offset=T_cached, dim1=-2, dim2=-1).fill_(1)  # set diagonals back to 1
         
         # (B, n_groups, T_max, d_head)
         # Propagate through blocks
         for i, block in enumerate(self.blocks):
             if use_cache:
                 x = block(x, rope_cos=self.rope_cos, rope_sin=self.rope_sin, 
-                    mask=mask, K_cache=K_cache[i], V_cache=V_cache[i], T_cached=T_cached)
+                    mask=mask, T_pad=T_pad, T_cached=T_cached, K_cache=K_cache[i], V_cache=V_cache[i])
             else:
-                x = block(x, rope_cos=self.rope_cos, rope_sin=self.rope_sin)
+                x = block(x, rope_cos=self.rope_cos, rope_sin=self.rope_sin, mask=mask, T_pad=T_pad)
         x = self.norm(x) 
         logits = self.unembedding(x) # (B, T, V)
         return logits, K_cache, V_cache
@@ -91,12 +104,12 @@ class TransformerBlock(nn.Module):
         self.fcn3 = nn.Linear(self.spec.d_linear, self.spec.d_model, bias=False)
     
     def forward(self, x, *, rope_cos, rope_sin, mask=None,
-                K_cache=None, V_cache=None, T_cached: int = 0):  # (B, T, d_model)
+                T_pad, T_cached: int = 0, K_cache=None, V_cache=None):  # (B, T, d_model)
         #if cache is not None: assert type(cache) == tuple or type(cache) == list, (cache, type(cache))
         pre_block = x
         x = self.norm1(x)
         x = self.gqa(x, mask=mask, rope_cos=rope_cos, rope_sin=rope_sin, 
-            K_cache=K_cache, V_cache=V_cache, T_cached=T_cached)
+                T_pad=T_pad, T_cached=T_cached, K_cache=K_cache, V_cache=V_cache)
         x = x + pre_block
         x_rms2 = self.norm2(x)
         x = self.fcn3(F.silu(self.fcn1(x_rms2)) * self.fcn2(x_rms2)) + x
@@ -128,7 +141,7 @@ class GQA(nn.Module):
         out = x * rope_cos[offset : offset + T] + x90 * rope_sin[offset : offset + T]
         return out
         
-    def forward(self, x, *, rope_cos, rope_sin, mask, K_cache=None, V_cache=None, T_cached: int = 0):  # (B, T, d_model) -> (B, T, d_model)
+    def forward(self, x, *, rope_cos, rope_sin, mask, T_pad, T_cached: int = 0, K_cache=None, V_cache=None):  # (B, T, d_model) -> (B, T, d_model)
         B, T, _ = x.shape
         
         Q = self.Wq(x)  # (B, T, d_head * n_heads)
@@ -174,10 +187,9 @@ class GQA(nn.Module):
         # (B, n_heads, T_max, d_head)
         if use_cache:
             A = F.scaled_dot_product_attention(
-                Q, K_cache[:, :, :T_cached+T], V_cache[:, :, :T_cached+T], mask, enable_gqa=True) 
+                Q, K_cache[:, :, :T_cached+T], V_cache[:, :, :T_cached+T], mask, enable_gqa=True)
         else:
-             A = F.scaled_dot_product_attention(
-                Q, K, V, is_causal=True, enable_gqa=True) 
+             A = F.scaled_dot_product_attention(Q, K, V, mask, enable_gqa=True) 
         
         # Mix the heads
         A = A.permute(0, 2, 1, 3)   # (B, T, n_heads, d_head)
