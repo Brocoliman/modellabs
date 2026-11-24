@@ -94,37 +94,42 @@ class SampleBatch:
         return outputs
 
 class ChatModel:
-    def __init__(self, spec, config):
-        self.spec = ModelSpec(spec)
-        self.config = InferenceConfig(config, spec)
-        self.device = torch.device(self.config.device)
-        self.load()
+    def __init__(self, 
+                spec: ModelSpec, sampling: SamplingConfig, ckpt: CheckpointConfig, load=True):
+        self.spec = spec
+        self.sampling = sampling
+        self.ckpt = ckpt
+        self.device = torch.device(self.ckpt.device)
+        if load: self._load()
     
-    def load(self):
+    def _load(self):
         # Load tokenizer & weights
-        self.tokenizer = Qwen3Tokenizer(tokenizer_file_path=self.config.tokenizer_dir)
+        self.tokenizer = Qwen3Tokenizer(tokenizer_file_path=self.ckpt.tokenizer_dir)
         self.model = Qwen3(self.spec)
-        self.model.load_state_dict(hf_to_local_format(self.spec, self.config.root_dir), strict=True)
+        self.model.load_state_dict(hf_to_local_format(self.spec, self.ckpt.root_dir), strict=True)
         self.model.to(self.device, dtype=self.spec.dtype)
         
     ##### Display functions (str in, str out)
     
     # str prompt -> str output
-    def generate_text2text(self, prompt: str, **config) -> str:
+    def generate_text2text(self, prompt: str, sampling: SamplingConfig | None = None) -> str:
+        sampling = sampling or self.sampling
         input_ids = self.tokenizer.encode(prompt)
-        output = self.samples([input_ids], **config).decode_output()[0]
+        output = self.samples([input_ids], sampling=sampling).decode_output()[0]
         return output
 
     # str prompt -> stdout
-    def stream_stdout(self, prompt: str, debug=True, **config):
-        max_new_tokens = config.get('max_new_tokens', self.config.max_new_tokens)
+    def stream_stdout(self, prompt: str, debug=True, sampling: SamplingConfig | None = None):
+        sampling = sampling or self.sampling
+        max_new_tokens = sampling.max_new_tokens
         
         input_ids = self.tokenizer.encode(prompt)
         input_tensor = torch.tensor(input_ids).unsqueeze(0).to(self.device)
         output_stream = ""
         time_start = time.perf_counter()
         with Live(refresh_per_second=10, transient=True, vertical_overflow="crop") as live:
-            gen_stream = self.generate(input_tensor, **config)
+            gen_stream = self.generate(input_tensor, 
+                T_pad=torch.tensor([0], device=self.device), sampling=sampling)
             n = 1
             while True:
                 try:
@@ -154,7 +159,8 @@ class ChatModel:
     
     # Main wrapper on top of ChatModel.generate
     # input ids -> output ids, lengths, finish reasons
-    def samples(self, input_ids: list[list[int]], repeats=1, **config) -> SampleBatch:
+    def samples(self, input_ids: list[list[int]], *, repeats=1, 
+                sampling: SamplingConfig | None = None) -> SampleBatch:
         """Handles batch inputs that have duplicates
 
         Args:
@@ -170,7 +176,8 @@ class ChatModel:
             SampleBatch: 
                 Contains input and output ids, padding alignment data, finish reasons, etc.
         """
-        eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
+        sampling = sampling or self.sampling
+        eos_token_id = self.ckpt.eos_token_id
         
         # Left-pad input_ids -> get input_tensor
         # In the process, create T_left, T_pad, T_in
@@ -192,7 +199,7 @@ class ChatModel:
         output_ids = torch.empty([B, 0], dtype=torch.long, device=self.device)  # (B, 0->T_out)
         
         # Generation loop
-        gen_stream = self.generate(input_tensor, T_pad, **config)
+        gen_stream = self.generate(input_tensor, T_pad=T_pad, sampling=sampling)
         while True:
             try:
                 # (B, 1), (B, 1)
@@ -218,7 +225,8 @@ class ChatModel:
     
     # (B, T) -> T_resp x [(B, 1), (B, 1)], B
     @torch.no_grad()
-    def generate(self, token_ids: torch.Tensor, T_pad: torch.Tensor, **config) -> Generator[torch.Tensor, None, None]:
+    def generate(self, token_ids: torch.Tensor, *, T_pad: torch.Tensor, 
+                 sampling: SamplingConfig | None = None) -> Generator[torch.Tensor, None, None]:
         """Manages inference, token-level decoding, cache handling, batching, exit
             
         Requires:
@@ -237,17 +245,16 @@ class ChatModel:
             finished: (B, 1) x T_out
                 whether this row is finished; is True on the instant EOS is generated
         """
-
-        # token_ids to be shape [B, T]
+        # inference parameters
+        sampling = sampling or self.sampling
+        max_new_tokens = sampling.max_new_tokens
+        cached = sampling.cached
+        temperature = sampling.temperature
+        nucleus_top_p = sampling.nucleus_top_p
+        eos_token_id = self.ckpt.eos_token_id
+        
         B, T = token_ids.shape
         finished = torch.zeros((B,), dtype=torch.bool, device=token_ids.device)
-        
-        # inference parameters
-        max_new_tokens = config.get('max_new_tokens', self.config.max_new_tokens)
-        cached = config.get('cached', self.config.cached)
-        temperature = config.get('temperature', self.config.temperature)
-        eos_token_id = config.get('eos_token_id', self.config.eos_token_id)
-        nucleus_top_p = config.get('nucleus_top_p', self.config.nucleus_top_p)
         T_max = max_new_tokens + token_ids.shape[1]  # required for the KV cache size
         
         self.model.eval()
@@ -340,7 +347,7 @@ class ChatModel:
         
 
 if __name__ == "__main__":
-    chatmodel = ChatModel(SPEC_QWEN06B, CONFIG_QWEN06_BASE)
+    chatmodel = ChatModel(SPEC_QWEN06, SAMPLER_QWEN06, QWEN06_BASE)
     
     import sys
     prompt = ' '.join(sys.argv[1:]) if len(sys.argv)>1 else "Explain large language models: "

@@ -28,7 +28,6 @@ def hf_to_local_format(spec: ModelSpec, root: Path) -> dict:
 # For downloading the weights only
 if __name__ == "__main__":
     load_dotenv()
-    local_dir = CONFIG_QWEN06_BASE['root']
-    path = snapshot_download(CONFIG_QWEN06_BASE['HF_NAME'],
+    path = snapshot_download(QWEN06_BASE.hf_name,
                             allow_patterns=["*.safetensors", "*.json"],
-                            local_dir=local_dir)
+                            local_dir=QWEN06_BASE.root_dir)

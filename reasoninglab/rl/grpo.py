@@ -1,9 +1,14 @@
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from ..infer import ChatModel
 
 
 class GRPOTrainer:
-    def __init__(self, ):
-        pass
+    def __init__(self, chatmodel: ChatModel):
+        self.chatmodel = chatmodel
+        self.model = self.chatmodel.model
     
 
 

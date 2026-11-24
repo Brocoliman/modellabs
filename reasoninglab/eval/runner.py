@@ -13,23 +13,28 @@ from .manifest import TaskManifest
 # =======================================
 
 class Runner:
-    def __init__(self, chatmodel: ChatModel, *, tasks: TaskManifest, out_path: str):
+    def __init__(self, chatmodel: ChatModel, *, tasks: TaskManifest, evaluate: EvalConfig, load_tasks=True):
         self.chatmodel = chatmodel
-        self.config = self.chatmodel.config
         self.tasks = tasks
-        self.out_path = Path(out_path)
+        self.evaluate = evaluate
+        
+        # Load tasks
+        if load_tasks: 
+            self.tasks.load(
+                indices=range(*self.evaluate.task_range) if self.evaluate.task_range else None, 
+                download=True)
     
     def run(self):
         num_tasks = len(self.tasks)
         num_correct = 0
         start_time = time.perf_counter()
-        with open(self.out_path, 'w') as f:
+        with open(self.evaluate.out_path, 'w') as f:
             for i, task in enumerate(tqdm(self.tasks), start=1):
                 # Encode prompt
                 prompt = self.tasks.chat_prompt(task)
                 input_ids = [self.chatmodel.tokenizer.encode(prompt)]
                 # Pass in prompt and get output
-                output_sample = self.chatmodel.samples(input_ids, repeats=self.config.consistency_k)
+                output_sample = self.chatmodel.samples(input_ids, repeats=self.evaluate.consistency_k)
                 outputs = output_sample.decode_output()
                 # Grade output
                 samples, final_answer, final_score, final_feedback = self.grade(task, outputs, output_sample.finish_reasons)
