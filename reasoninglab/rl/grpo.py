@@ -9,6 +9,7 @@ from ..eval.runner import Runner
 
 
 class GRPOTrainer:
+<<<<<<< Updated upstream
     """Trainer class for RLVR
     
     Requires:
@@ -23,6 +24,29 @@ class GRPOTrainer:
         self.model = self.chatmodel.model
         self.tasks = tasks
         self.runner = runner
+=======
+<<<<<<< Updated upstream
+    def __init__(self, chatmodel: ChatModel):
+        self.chatmodel = chatmodel
+        self.model = self.chatmodel.model
+=======
+    """Trainer class for RLVR
+    
+    Requires:
+        chatmodel: ChatModel
+        tasks: TaskManifest
+            use for generate prompt (chat_prompt) and get reward (score)
+        runner: Runner (optional)
+            useful for periodic eval, if nothing is passed, periodic eval does not happen
+    """
+    def __init__(self, chatmodel: ChatModel, *, tasks: TaskManifest, training: RLConfig, runner: Runner = None):
+        self.chatmodel = chatmodel
+        self.model = self.chatmodel.model
+        self.tasks = tasks
+        self.training = training
+        self.runner = runner
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
     
 
 

@@ -7,7 +7,7 @@ import os
 from ..config import PATH_DATA
 
 class Task:
-    def __init__(self, *, id: Hashable,  query: str, answer: str, properties: dict = None):
+    def __init__(self, *, id: Hashable, query: str, answer: str, properties: dict = None):
         self.id = id
         self.query = query
         self.answer = answer
