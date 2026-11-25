@@ -11,9 +11,16 @@ import torch
 PATH_DATA = HERE / 'data'
 
 # ===== Configurations
+
+@dataclass
+class RLConfig:
+    """Parameters for training RLVR
+    """
+    pass
 @dataclass
 class EvalConfig:
     """Parameters for benchmark evaluation
+    These are directly used by Runner
     """
     consistency_k: int = 1
     task_range: Iterable = None
@@ -63,7 +70,6 @@ class ModelSpec:
             f"For RoPE, d_head must be divisible by 2"
             
         self.group_size = self.n_heads // self.n_groups
-            
 
 
 # ===== Predefined configs

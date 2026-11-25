@@ -59,6 +59,8 @@ class Runner:
         print(f"Accuracy: {num_correct}/{num_tasks} = {accuracy:.1f}%")
 
     def grade(self, task, outputs: list[str], finish_reasons: list[str]) -> tuple[list[dict], str, int, str]:
+        # Note: a lot of the plumbing here is just to handle k-sampling 
+        #   Otherwise, only the extract_normalized_answer and grade_answer line are needed
         num_samples = len(outputs)
         sample_template = {'output': ..., 'finish_reason':..., 'extracted': ..., 'score': ..., 'feedback': ...}
         samples: list[dict] = [sample_template.copy() for _ in range(num_samples)]
